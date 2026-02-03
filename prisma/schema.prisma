@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ==========================================
+// AUTHENTICATION MODELS
+// ==========================================
+
+enum UserRole {
+  ADMIN
+  USER
+  PARTNER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          UserRole  @default(USER)
+  companyId     String?
+  company       Company?  @relation(fields: [companyId], references: [id])
+  projects      WebProject[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+}
+
+// ==========================================
+// CORE BUSINESS MODELS
+// ==========================================
+
+model Company {
+  id          String       @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  address     String?      @db.Text
+  taxId       String?
+  logoUrl     String?
+  users       User[]
+  projects    WebProject[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+enum ProjectStatus {
+  DRAFT
+  PLANNING
+  DESIGNING
+  DEVELOPMENT
+  REVIEW
+  LIVE
+  CANCELLED
+}
+
+enum ProjectPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model WebProject {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  description String?         @db.Text
+  template    String?         @default("standard")
+  industry    String?         @default("OSGB")
+  status      ProjectStatus   @default(DRAFT)
+  priority    ProjectPriority @default(MEDIUM)
+  
+  // Ownership
+  companyId   String
+  company     Company         @relation(fields: [companyId], references: [id])
+  userId      String?
+  user        User?           @relation(fields: [userId], references: [id])
+  
+  // Infrastructure
+  domainId    String?         @unique
+  domain      Domain?         @relation(fields: [domainId], references: [id])
+  previewUrl  String?
+  siteUrl     String?
+  
+  // Progress & Stats
+  progress    Int             @default(0)
+  version     Int             @default(1)
+  
+  // Contents
+  generatedContents GeneratedContent[]
+  pages             Page[]
+  tasks             ProjectTask[]
+  
+  // Finances
+  price       Float?
+  isPaid      Boolean         @default(false)
+  paidAt      DateTime?
+  notes       String?         @db.Text
+  
+  // Timestamps
+  startedAt   DateTime?
+  completedAt DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  
+  serviceId   String?
+  service     Service?        @relation(fields: [serviceId], references: [id])
+}
+
+model GeneratedContent {
+  id              String     @id @default(cuid())
+  projectId       String
+  project         WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contentType     String     // HOMEPAGE, ABOUT, SERVICES, FAQ, CONTACT
+  title           String?
+  content         String     @db.Text
+  metaTitle       String?
+  metaDescription String?    @db.Text
+  status          String     @default("DRAFT") // DRAFT, REVIEW, APPROVED
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([projectId, contentType])
+}
+
+model Page {
+  id        String     @id @default(cuid())
+  projectId String
+  project   WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  sections  Section[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([projectId, slug])
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  type      String
+  title     String?
+  content   String?  @db.Text
+  metadata  Json?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pageId])
+}
+
+// ==========================================
+// INFRASTRUCTURE MODELS
+// ==========================================
+
+model Domain {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  registrar   String?
+  status      String       @default("PENDING") // PENDING, VERIFIED, ACTIVE
+  serverIp    String?
+  notes       String?      @db.Text
+  project     WebProject?
+  dnsRecords  DnsRecord[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model DnsRecord {
+  id        String   @id @default(cuid())
+  domainId  String
+  domain    Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  type      String   // A, CNAME, MX, TXT, etc.
+  name      String   // @, www, etc.
+  value     String   @db.Text
+  ttl       Int      @default(3600)
+  priority  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// SYSTEM MODELS
+// ==========================================
+
+model Service {
+  id          String       @id @default(cuid())
+  name        String
+  description String?      @db.Text
+  projects    WebProject[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model ProjectTask {
+  id        String     @id @default(cuid())
+  projectId String
+  project   WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  status    String     @default("TODO")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  DEPLOY
+}
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  action    AuditAction
+  entity    String
+  entityId  String
+  details   String?     @db.Text
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id])
+  userEmail String?
+  userName  String?
+  createdAt DateTime    @default(now())
+}
+
+model ApiConfig {
+  id        String   @id @default(cuid())
+  provider  String   @unique // CLOUDFLARE, OPENAI
+  apiKey    String
+  config    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
