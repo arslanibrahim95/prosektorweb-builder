@@ -29,6 +29,9 @@ AUTH_SECRET="your-secret-key"
 
 # OpenAI (AI Generation için)
 OPENAI_API_KEY="sk-..."
+
+# Dashboard'dan public site verisini cekmek icin (opsiyonel)
+DASHBOARD_PUBLIC_API_BASE="http://localhost:3000"
 ```
 
 ## Yapı
