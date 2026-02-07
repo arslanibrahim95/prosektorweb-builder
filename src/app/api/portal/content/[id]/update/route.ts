@@ -4,7 +4,7 @@ import { auth } from '@/auth'
 
 export async function PUT(
     request: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const session = await auth()
@@ -12,7 +12,7 @@ export async function PUT(
             return new NextResponse('Unauthorized', { status: 401 })
         }
 
-        const { id } = params
+        const { id } = await params
         const { content } = await request.json()
 
         // Update the content in the database

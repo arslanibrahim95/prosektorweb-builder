@@ -7,16 +7,13 @@ import { getErrorMessage, getZodErrorMessage, isPrismaUniqueConstraintError, log
 import { checkRateLimit, getClientIp } from '@/shared/lib/rate-limit'
 import { encrypt } from '@/features/auth/lib/crypto'
 import { z } from 'zod'
-import { AuditAction, DomainStatus } from '@prisma/client'
+import { AuditAction } from '@prisma/client'
 
 export interface DomainInput {
     name: string
-    companyId?: string
     registrar?: string
     serverIp?: string
-    expiresAt?: Date
-    autoRenew?: boolean
-    price?: number
+    status?: string
     notes?: string
 }
 
@@ -41,11 +38,10 @@ export interface DomainSearchResult {
 
 const DomainSchema = z.object({
     name: z.string().min(3, 'Domain adı en az 3 karakter olmalı'),
-    extension: z.string().min(2),
-    companyId: z.string().optional(),
+    extension: z.string().min(2).optional(),
     registrar: z.string().optional(),
     serverIp: z.string().optional(),
-    expiresAt: z.string().optional(),
+    status: z.string().optional(),
     notes: z.string().optional(),
 })
 
@@ -56,27 +52,14 @@ export async function getDomainStats() {
         if (session?.user?.role !== 'ADMIN') return { total: 0, active: 0, pending: 0, suspended: 0, expired: 0, expiringSoon: 0 }
 
         const [total, active, pending, suspended, expired] = await Promise.all([
-            prisma.domain.count({ where: { deletedAt: null } }),
-            prisma.domain.count({ where: { status: 'ACTIVE', deletedAt: null } }),
-            prisma.domain.count({ where: { status: 'PENDING', deletedAt: null } }),
-            prisma.domain.count({ where: { status: 'SUSPENDED', deletedAt: null } }),
-            prisma.domain.count({ where: { status: 'EXPIRED', deletedAt: null } }),
+            prisma.domain.count(),
+            prisma.domain.count({ where: { status: 'ACTIVE' } }),
+            prisma.domain.count({ where: { status: 'PENDING' } }),
+            prisma.domain.count({ where: { status: 'SUSPENDED' } }),
+            prisma.domain.count({ where: { status: 'EXPIRED' } }),
         ])
 
-        // Expiring Soon (Next 30 days)
-        const next30Days = new Date()
-        next30Days.setDate(next30Days.getDate() + 30)
-
-        const expiringSoon = await prisma.domain.count({
-            where: {
-                status: 'ACTIVE',
-                expiresAt: {
-                    lte: next30Days,
-                    gte: new Date()
-                },
-                deletedAt: null
-            }
-        })
+        const expiringSoon = 0
 
         return {
             total,
@@ -116,31 +99,21 @@ export async function getDomains(cursor?: string, limit: number = 20, search?: s
     try {
         const session = await auth()
         if (!session?.user) return { data: [], meta: { nextCursor: null, limit } }
+        if (session.user.role !== 'ADMIN') return { data: [], meta: { nextCursor: null, limit } }
 
-        const where: any = {
-            deletedAt: null
-        }
-
-        // AuthZ: Non-admins can only see their own company's domains
-        if (session.user.role !== 'ADMIN') {
-            if (!session.user.companyId) return { data: [], meta: { nextCursor: null, limit } }
-            where.companyId = session.user.companyId
-        }
+        const where: any = {}
 
         if (search) {
-            where.OR = [
-                { name: { contains: search } },
-                { company: { name: { contains: search } } }
-            ]
+            where.name = { contains: search }
         }
 
         const data = await prisma.domain.findMany({
             where,
             take: limit + 1,
             cursor: cursor ? { id: cursor } : undefined,
-            orderBy: { expiresAt: 'asc' }, // Prioritize expiration
+            orderBy: { createdAt: 'desc' },
             include: {
-                company: { select: { id: true, name: true } },
+                project: { select: { id: true, name: true, slug: true } },
                 _count: { select: { dnsRecords: true } }
             }
         })
@@ -172,16 +145,14 @@ export async function getDomain(id: string) {
         const domain = await prisma.domain.findUnique({
             where: { id },
             include: {
-                company: true,
                 dnsRecords: true,
-                webProjects: true
+                project: true
             }
         })
 
         if (!domain) return null
 
-        // AuthZ: ADMIN or USER who belongs to this company
-        if (session.user.role !== 'ADMIN' && session.user.companyId !== domain.companyId) {
+        if (session.user.role !== 'ADMIN') {
             return null
         }
 
@@ -200,11 +171,10 @@ export async function createDomain(input: DomainInput | FormData): Promise<Actio
 
         const rawData = input instanceof FormData ? {
             name: input.get('name') as string,
-            extension: input.get('extension') as string,
-            companyId: input.get('companyId') as string || undefined,
+            extension: input.get('extension') as string || undefined,
             registrar: input.get('registrar') as string || undefined,
             serverIp: input.get('serverIp') as string || undefined,
-            expiresAt: input.get('expiresAt') as string || undefined,
+            status: input.get('status') as string || undefined,
             notes: input.get('notes') as string || undefined,
         } : input
 
@@ -219,14 +189,10 @@ export async function createDomain(input: DomainInput | FormData): Promise<Actio
         const domain = await prisma.domain.create({
             data: {
                 name: fullDomain,
-                extension: validated.extension || (fullDomain.includes('.') ? '.' + fullDomain.split('.').pop() : '.com'),
-                companyId: validated.companyId || null,
                 registrar: validated.registrar || null,
                 serverIp: validated.serverIp || null,
-                expiresAt: validated.expiresAt ? new Date(validated.expiresAt) : null,
                 notes: validated.notes || null,
-                status: 'ACTIVE',
-                registeredAt: new Date(),
+                status: validated.status || 'ACTIVE',
             },
         })
 
@@ -253,7 +219,13 @@ export async function updateDomain(id: string, data: Partial<DomainInput>): Prom
 
         const domain = await prisma.domain.update({
             where: { id },
-            data
+            data: {
+                name: data.name,
+                registrar: data.registrar ?? null,
+                serverIp: data.serverIp ?? null,
+                notes: data.notes ?? null,
+                status: data.status,
+            }
         })
 
         await logActivity('UPDATE', 'Domain', id, data)
@@ -274,7 +246,10 @@ export async function deleteDomain(id: string): Promise<ActionResult> {
 
         await prisma.domain.update({
             where: { id },
-            data: { deletedAt: new Date() }
+            data: {
+                status: 'DELETED',
+                notes: 'Soft-deleted via panel',
+            }
         })
 
         await logActivity('DELETE', 'Domain', id)
@@ -344,15 +319,13 @@ export async function getApiConfigs() {
         const session = await auth()
         if (session?.user?.role !== 'ADMIN') return []
 
-        const configs = await prisma.apiConfig.findMany({ orderBy: { name: 'asc' } })
+        const configs = await prisma.apiConfig.findMany({ orderBy: { provider: 'asc' } })
 
         // Mask
         return configs.map(config => ({
             ...config,
             apiKey: config.apiKey ? '••••••••' + (config.apiKey.slice(-4) || '') : null,
-            apiSecret: config.apiSecret ? '••••••••' + (config.apiSecret.slice(-4) || '') : null,
             hasApiKey: !!config.apiKey,
-            hasApiSecret: !!config.apiSecret,
         }))
     } catch (e) {
         return []
@@ -377,19 +350,23 @@ export async function saveApiConfig(formData: FormData): Promise<ActionResult> {
         await prisma.apiConfig.upsert({
             where: { provider },
             update: {
-                name,
-                apiKey: encryptedApiKey, // Only update if provided
-                apiSecret: encryptedApiSecret,
-                apiEndpoint,
-                isActive: true
+                apiKey: encryptedApiKey || undefined,
+                config: {
+                    name,
+                    apiSecret: encryptedApiSecret || null,
+                    apiEndpoint: apiEndpoint || null,
+                    isActive: true,
+                }
             },
             create: {
                 provider,
-                name,
                 apiKey: encryptedApiKey || '',
-                apiSecret: encryptedApiSecret || '',
-                apiEndpoint,
-                isActive: true
+                config: {
+                    name,
+                    apiSecret: encryptedApiSecret || null,
+                    apiEndpoint: apiEndpoint || null,
+                    isActive: true,
+                }
             }
         })
 

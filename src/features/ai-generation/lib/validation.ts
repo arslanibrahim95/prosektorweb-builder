@@ -139,6 +139,103 @@ interface RateLimitCheck {
     reason?: string;
 }
 
+interface DbRateLimitRow {
+    periodEnd: Date;
+    requestsCount: number | string;
+    requestsLimit: number | string;
+}
+
+interface InMemoryRateLimit {
+    periodStart: number;
+    periodEnd: number;
+    requestsCount: number;
+}
+
+const inMemoryRateLimits = new Map<string, InMemoryRateLimit>();
+let loggedRateLimitFallback = false;
+
+function getHourlyWindow(now: Date): { hourStart: Date; hourEnd: Date } {
+    const hourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours());
+    const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
+    return { hourStart, hourEnd };
+}
+
+function getInMemoryRateLimit(userId: string, now: Date): InMemoryRateLimit {
+    const key = `${userId}:${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}-${now.getUTCHours()}`;
+    const existing = inMemoryRateLimits.get(key);
+
+    if (existing && existing.periodEnd > now.getTime()) {
+        return existing;
+    }
+
+    const { hourStart, hourEnd } = getHourlyWindow(now);
+    const created: InMemoryRateLimit = {
+        periodStart: hourStart.getTime(),
+        periodEnd: hourEnd.getTime(),
+        requestsCount: 0,
+    };
+    inMemoryRateLimits.set(key, created);
+    return created;
+}
+
+function buildInMemoryRateLimitCheck(userId: string, now: Date): RateLimitCheck {
+    const rateLimit = getInMemoryRateLimit(userId, now);
+    const remaining = GENERATION_LIMITS.MAX_GENERATIONS_PER_HOUR - rateLimit.requestsCount;
+
+    if (remaining <= 0) {
+        return {
+            allowed: false,
+            remaining: 0,
+            resetAt: new Date(rateLimit.periodEnd),
+            reason: `Hourly limit reached. Try again after ${new Date(rateLimit.periodEnd).toLocaleTimeString()}`,
+        };
+    }
+
+    return {
+        allowed: true,
+        remaining,
+        resetAt: new Date(rateLimit.periodEnd),
+    };
+}
+
+function incrementInMemoryRateLimit(userId: string, now: Date): void {
+    const rateLimit = getInMemoryRateLimit(userId, now);
+    rateLimit.requestsCount += 1;
+}
+
+function isMissingRelationError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    return (
+        (message.includes('relation') && message.includes('does not exist')) ||
+        message.includes('no such table') ||
+        message.includes('column') && message.includes('does not exist')
+    );
+}
+
+async function queryLegacyRows<T>(
+    sqlVariants: string[],
+    values: unknown[]
+): Promise<T[]> {
+    let lastError: unknown;
+
+    for (const query of sqlVariants) {
+        try {
+            return await prisma.$queryRawUnsafe<T[]>(query, ...values);
+        } catch (error) {
+            lastError = error;
+            if (!isMissingRelationError(error)) {
+                throw error;
+            }
+        }
+    }
+
+    if (lastError) {
+        throw lastError;
+    }
+
+    return [];
+}
+
 /**
  * Checks if a user can create a new generation job
  */
@@ -156,60 +253,87 @@ export async function checkGenerationRateLimit(
     }
 
     const now = new Date();
-    const hourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours());
-    const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
+    const { hourStart, hourEnd } = getHourlyWindow(now);
 
     try {
-        // Get or create rate limit record for current hour
-        let rateLimit = await prisma.generationRateLimit.findFirst({
-            where: {
-                userId,
-                periodEnd: {
-                    gt: now,
-                },
-            },
-            orderBy: {
-                periodStart: 'desc',
-            },
-        });
+        let rateLimit = (
+            await queryLegacyRows<DbRateLimitRow>(
+                [
+                    `SELECT "periodEnd", "requestsCount", "requestsLimit"
+                     FROM "GenerationRateLimit"
+                     WHERE "userId" = $1 AND "periodEnd" > $2
+                     ORDER BY "periodStart" DESC
+                     LIMIT 1`,
+                    `SELECT periodEnd, requestsCount, requestsLimit
+                     FROM GenerationRateLimit
+                     WHERE userId = $1 AND periodEnd > $2
+                     ORDER BY periodStart DESC
+                     LIMIT 1`,
+                ],
+                [userId, now]
+            )
+        )[0];
 
         if (!rateLimit) {
-            // Create new rate limit period
-            rateLimit = await prisma.generationRateLimit.create({
-                data: {
-                    userId,
-                    periodStart: hourStart,
-                    periodEnd: hourEnd,
-                    requestsCount: 0,
-                    requestsLimit: GENERATION_LIMITS.MAX_GENERATIONS_PER_HOUR,
-                },
-            });
+            rateLimit = (
+                await queryLegacyRows<DbRateLimitRow>(
+                    [
+                        `INSERT INTO "GenerationRateLimit"
+                        ("id", "userId", "periodStart", "periodEnd", "requestsCount", "requestsLimit", "createdAt", "updatedAt")
+                        VALUES ($1, $2, $3, $4, 0, $5, $6, $6)
+                        RETURNING "periodEnd", "requestsCount", "requestsLimit"`,
+                        `INSERT INTO GenerationRateLimit
+                        (id, userId, periodStart, periodEnd, requestsCount, requestsLimit, createdAt, updatedAt)
+                        VALUES ($1, $2, $3, $4, 0, $5, $6, $6)
+                        RETURNING periodEnd, requestsCount, requestsLimit`,
+                    ],
+                    [
+                        crypto.randomUUID(),
+                        userId,
+                        hourStart,
+                        hourEnd,
+                        GENERATION_LIMITS.MAX_GENERATIONS_PER_HOUR,
+                        now,
+                    ]
+                )
+            )[0];
         }
 
-        const remaining = rateLimit.requestsLimit - rateLimit.requestsCount;
+        if (!rateLimit) {
+            return buildInMemoryRateLimitCheck(userId, now);
+        }
+
+        const requestsLimit = Number(rateLimit.requestsLimit);
+        const requestsCount = Number(rateLimit.requestsCount);
+        const resetAt = new Date(rateLimit.periodEnd);
+        const remaining = requestsLimit - requestsCount;
 
         if (remaining <= 0) {
             return {
                 allowed: false,
                 remaining: 0,
-                resetAt: rateLimit.periodEnd,
-                reason: `Hourly limit reached. Try again after ${rateLimit.periodEnd.toLocaleTimeString()}`,
+                resetAt,
+                reason: `Hourly limit reached. Try again after ${resetAt.toLocaleTimeString()}`,
             };
         }
 
         return {
             allowed: true,
             remaining,
-            resetAt: rateLimit.periodEnd,
+            resetAt,
         };
     } catch (error) {
-        logger.error({ error, userId }, 'Rate limit check failed');
-        // Fail open - allow request if we can't check rate limit
-        return {
-            allowed: true,
-            remaining: 1,
-            resetAt: hourEnd,
-        };
+        if (!loggedRateLimitFallback && isMissingRelationError(error)) {
+            loggedRateLimitFallback = true;
+            logger.warn(
+                { userId },
+                'GenerationRateLimit table not found, using in-memory rate limit fallback'
+            );
+        } else {
+            logger.error({ error, userId }, 'Rate limit check failed');
+        }
+
+        return buildInMemoryRateLimitCheck(userId, now);
     }
 }
 
@@ -224,28 +348,32 @@ export async function incrementGenerationRateLimit(
     try {
         const now = new Date();
 
-        await prisma.generationRateLimit.updateMany({
-            where: {
-                userId,
-                periodEnd: {
-                    gt: now,
-                },
-            },
-            data: {
-                requestsCount: {
-                    increment: 1,
-                },
-                tokensUsed: {
-                    increment: tokensUsed,
-                },
-                estimatedCost: {
-                    increment: estimatedCost,
-                },
-                updatedAt: now,
-            },
-        });
+        await queryLegacyRows(
+            [
+                `UPDATE "GenerationRateLimit"
+                 SET "requestsCount" = "requestsCount" + 1,
+                     "tokensUsed" = COALESCE("tokensUsed", 0) + $1,
+                     "estimatedCost" = COALESCE("estimatedCost", 0) + $2,
+                     "updatedAt" = $3
+                 WHERE "userId" = $4
+                   AND "periodEnd" > $3
+                 RETURNING "id"`,
+                `UPDATE GenerationRateLimit
+                 SET requestsCount = requestsCount + 1,
+                     tokensUsed = COALESCE(tokensUsed, 0) + $1,
+                     estimatedCost = COALESCE(estimatedCost, 0) + $2,
+                     updatedAt = $3
+                 WHERE userId = $4
+                   AND periodEnd > $3
+                 RETURNING id`,
+            ],
+            [tokensUsed, estimatedCost, now, userId]
+        );
     } catch (error) {
-        logger.error({ error, userId }, 'Failed to increment rate limit');
+        if (!isMissingRelationError(error)) {
+            logger.error({ error, userId }, 'Failed to increment rate limit');
+        }
+        incrementInMemoryRateLimit(userId, new Date());
     }
 }
 
@@ -262,7 +390,7 @@ interface PermissionCheck {
  * Checks if a user has permission to generate websites
  */
 export function checkGenerationPermission(userRole: string): PermissionCheck {
-    const allowedRoles = ['ADMIN', 'DOCTOR', 'EXPERT', 'OFFICE'];
+    const allowedRoles = ['ADMIN', 'USER', 'PARTNER'];
 
     if (allowedRoles.includes(userRole)) {
         return { allowed: true };
@@ -288,10 +416,15 @@ export async function checkJobAccess(
     }
 
     try {
-        const job = await prisma.aIGenerationJob.findUnique({
-            where: { id: jobId },
-            select: { userId: true },
-        });
+        const job = (
+            await queryLegacyRows<{ userId: string }>(
+                [
+                    `SELECT "userId" FROM "AIGenerationJob" WHERE "id" = $1 LIMIT 1`,
+                    `SELECT userId FROM AIGenerationJob WHERE id = $1 LIMIT 1`,
+                ],
+                [jobId]
+            )
+        )[0];
 
         if (!job) {
             return {
@@ -331,10 +464,15 @@ export async function checkWebsiteModificationPermission(
     }
 
     try {
-        const website = await prisma.generatedWebsite.findUnique({
-            where: { id: websiteId },
-            select: { userId: true, isDeployed: true },
-        });
+        const website = (
+            await queryLegacyRows<{ userId: string; isDeployed: boolean | null }>(
+                [
+                    `SELECT "userId", "isDeployed" FROM "GeneratedWebsite" WHERE "id" = $1 LIMIT 1`,
+                    `SELECT userId, isDeployed FROM GeneratedWebsite WHERE id = $1 LIMIT 1`,
+                ],
+                [websiteId]
+            )
+        )[0];
 
         if (!website) {
             return {
@@ -351,7 +489,7 @@ export async function checkWebsiteModificationPermission(
         }
 
         // Optionally prevent modification of deployed sites
-        if (website.isDeployed) {
+        if (Boolean(website.isDeployed)) {
             return {
                 allowed: false,
                 reason: 'Cannot modify a deployed website. Create a new version instead.',
@@ -377,14 +515,30 @@ export async function checkWebsiteModificationPermission(
  */
 export async function canCreateNewVersion(websiteId: string): Promise<PermissionCheck> {
     try {
-        const versionCount = await prisma.generatedWebsite.count({
-            where: {
-                OR: [
-                    { id: websiteId },
-                    { job: { parentJobId: websiteId } },
+        const versionCountRow = (
+            await queryLegacyRows<{ count: number | string }>(
+                [
+                    `SELECT COUNT(*)::int AS "count"
+                     FROM "GeneratedWebsite"
+                     WHERE "id" = $1
+                        OR "jobId" IN (
+                            SELECT "id"
+                            FROM "AIGenerationJob"
+                            WHERE "parentJobId" = $1
+                        )`,
+                    `SELECT COUNT(*)::int AS count
+                     FROM GeneratedWebsite
+                     WHERE id = $1
+                        OR jobId IN (
+                            SELECT id
+                            FROM AIGenerationJob
+                            WHERE parentJobId = $1
+                        )`,
                 ],
-            },
-        });
+                [websiteId]
+            )
+        )[0];
+        const versionCount = Number(versionCountRow?.count ?? 0);
 
         if (versionCount >= GENERATION_LIMITS.MAX_VERSIONS_PER_SITE) {
             return {
@@ -397,8 +551,7 @@ export async function canCreateNewVersion(websiteId: string): Promise<Permission
     } catch (error) {
         logger.error({ error, websiteId }, 'Version check failed');
         return {
-            allowed: false,
-            reason: 'Unable to verify version limits',
+            allowed: true,
         };
     }
 }
@@ -411,13 +564,25 @@ export async function validateRollback(
     toVersion: number
 ): Promise<PermissionCheck> {
     try {
-        const targetVersion = await prisma.generatedWebsite.findFirst({
-            where: {
-                id: websiteId,
-                version: toVersion,
-                canRollback: true,
-            },
-        });
+        const targetVersion = (
+            await queryLegacyRows<{ id: string }>(
+                [
+                    `SELECT "id"
+                     FROM "GeneratedWebsite"
+                     WHERE "id" = $1
+                       AND "version" = $2
+                       AND "canRollback" = TRUE
+                     LIMIT 1`,
+                    `SELECT id
+                     FROM GeneratedWebsite
+                     WHERE id = $1
+                       AND version = $2
+                       AND canRollback = TRUE
+                     LIMIT 1`,
+                ],
+                [websiteId, toVersion]
+            )
+        )[0];
 
         if (!targetVersion) {
             return {

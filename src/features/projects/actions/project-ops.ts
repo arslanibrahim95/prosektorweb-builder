@@ -50,11 +50,11 @@ export async function createPreview(projectId: string, subdomain: string, rootDo
         // Update project
         await prisma.webProject.update({
             where: { id: projectId },
-            data: { previewUrl: result.url }
+            data: { previewUrl: result.fqdn }
         })
 
         revalidatePath(`/admin/projects/${projectId}`)
-        return { success: true, message: 'Önizleme oluşturuldu', data: { url: result.url } }
+        return { success: true, message: 'Önizleme oluşturuldu', data: { url: result.fqdn } }
     } catch (error) {
         console.error('createPreview error:', error)
         return { success: false, error: error instanceof Error ? error.message : 'Önizleme oluşturma hatası' }
@@ -135,7 +135,7 @@ export async function triggerDeploy(projectId: string): Promise<OpsResult> {
         // 1. Update status to DEPLOYING
         await prisma.webProject.update({
             where: { id: projectId },
-            data: { status: 'DEPLOYING' }
+            data: { status: 'DEVELOPMENT' }
         })
 
         revalidatePath(`/admin/projects/${projectId}`)

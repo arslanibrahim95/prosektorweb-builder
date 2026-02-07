@@ -5,11 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { z } from 'zod'
 import { slugify } from '@/shared/lib'
-import { PackageTier, AuditAction } from '@prisma/client'
+import { AuditAction } from '@prisma/client'
 
-// ================================
-// TYPES
-// ================================
+type PackageTier = 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE'
 
 export interface SiteCreationResult {
     success: boolean
@@ -22,10 +20,6 @@ export interface SiteCreationResult {
     }
 }
 
-// ================================
-// VALIDATION
-// ================================
-
 const CompanyDataSchema = z.object({
     companyId: z.string().optional(),
     companyName: z.string().min(2, 'Firma adı en az 2 karakter olmalı'),
@@ -36,7 +30,7 @@ const CompanyDataSchema = z.object({
 })
 
 const PackageDataSchema = z.object({
-    tier: z.nativeEnum(PackageTier),
+    tier: z.enum(['STARTER', 'PROFESSIONAL', 'ENTERPRISE']),
     addOnFeatures: z.array(z.string()).default([]),
 })
 
@@ -58,19 +52,11 @@ const SiteCreationSchema = z.object({
 
 export type SiteCreationInput = z.infer<typeof SiteCreationSchema>
 
-// ================================
-// TIER CONFIGURATION
-// ================================
-
 const TIER_CONFIG: Record<PackageTier, { maxPages: number; maxRevisions: number; price: number }> = {
     STARTER: { maxPages: 5, maxRevisions: 1, price: 7500 },
     PROFESSIONAL: { maxPages: 10, maxRevisions: 2, price: 15000 },
     ENTERPRISE: { maxPages: 999, maxRevisions: 3, price: 35000 },
 }
-
-// ================================
-// HELPERS
-// ================================
 
 async function logActivity(action: AuditAction, entity: string, entityId: string, details?: any) {
     const session = await auth()
@@ -91,9 +77,17 @@ async function logActivity(action: AuditAction, entity: string, entityId: string
     }
 }
 
-// ================================
-// MAIN ACTION
-// ================================
+function buildNotes(content: z.infer<typeof ContentDataSchema>, addOnFeatures: string[]): string | null {
+    const lines: string[] = []
+
+    if (content.slogan) lines.push(`Slogan: ${content.slogan}`)
+    if (content.services) lines.push(`Hizmetler: ${content.services}`)
+    if (content.references) lines.push(`Referanslar: ${content.references}`)
+    if (content.certifications) lines.push(`Sertifikalar: ${content.certifications}`)
+    if (addOnFeatures.length > 0) lines.push(`Ek Özellikler: ${addOnFeatures.join(', ')}`)
+
+    return lines.length > 0 ? lines.join('\n') : null
+}
 
 export async function createSiteFromWizard(input: SiteCreationInput): Promise<SiteCreationResult> {
     try {
@@ -108,12 +102,11 @@ export async function createSiteFromWizard(input: SiteCreationInput): Promise<Si
         }
 
         const { company: companyData, package: packageData, content: contentData } = parsed.data
-        const tierConfig = TIER_CONFIG[packageData.tier]
+        const tierConfig = TIER_CONFIG[packageData.tier as PackageTier]
 
-        // Run everything in a transaction
         const result = await prisma.$transaction(async (tx) => {
-            // 1. Company: create or update
             let companyId = companyData.companyId
+
             if (companyId) {
                 await tx.company.update({
                     where: { id: companyId },
@@ -122,7 +115,6 @@ export async function createSiteFromWizard(input: SiteCreationInput): Promise<Si
                         phone: companyData.phone || undefined,
                         email: companyData.email || undefined,
                         address: companyData.address || undefined,
-                        naceCode: companyData.naceCode || undefined,
                     },
                 })
             } else {
@@ -132,94 +124,54 @@ export async function createSiteFromWizard(input: SiteCreationInput): Promise<Si
                         phone: companyData.phone || null,
                         email: companyData.email || null,
                         address: companyData.address || null,
-                        naceCode: companyData.naceCode || null,
-                        status: 'PROSPECT',
                     },
                 })
                 companyId = newCompany.id
             }
 
-            // 2. WebProject
-            const slug = slugify(companyData.companyName + '-osgb')
-            // Check slug uniqueness
-            const existingSlug = await tx.webProject.findUnique({ where: { slug } })
-            const finalSlug = existingSlug ? `${slug}-${Date.now().toString(36)}` : slug
+            const slugBase = slugify(`${companyData.companyName}-osgb`)
+            const existingSlug = await tx.webProject.findUnique({ where: { slug: slugBase } })
+            const slug = existingSlug ? `${slugBase}-${Date.now().toString(36)}` : slugBase
 
             const project = await tx.webProject.create({
                 data: {
                     name: `${companyData.companyName} Web Sitesi`,
                     companyId: companyId!,
-                    slug: finalSlug,
+                    slug,
+                    template: packageData.tier.toLowerCase(),
+                    industry: 'OSGB',
                     status: 'DRAFT',
                     price: tierConfig.price,
-                    notes: contentData.slogan
-                        ? `Slogan: ${contentData.slogan}\n${contentData.services ? `Hizmetler: ${contentData.services}` : ''}`
-                        : contentData.services || null,
-                    previewEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
+                    notes: buildNotes(contentData, packageData.addOnFeatures),
                 },
             })
 
-            // 3. SitePackage
-            const sitePackage = await tx.sitePackage.create({
-                data: {
-                    webProjectId: project.id,
-                    tier: packageData.tier,
-                    maxRevisions: tierConfig.maxRevisions,
-                    maxPages: tierConfig.maxPages,
-                    hostingStartDate: new Date(),
-                    hostingEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                    isHostingActive: true,
-                },
-            })
-
-            // 4. PipelineRun
-            const pipelineRun = await tx.pipelineRun.create({
+            await tx.siteSettings.create({
                 data: {
                     projectId: project.id,
-                    status: 'PENDING',
-                    currentStage: 'INPUT',
-                    stages: {
-                        input: {
-                            companyName: companyData.companyName,
-                            phone: companyData.phone,
-                            email: companyData.email,
-                            address: companyData.address,
-                            naceCode: companyData.naceCode,
-                            tier: packageData.tier,
-                            addOnFeatures: packageData.addOnFeatures,
-                            services: contentData.services,
-                            references: contentData.references,
-                            certifications: contentData.certifications,
-                            workingHours: contentData.workingHours,
-                            colorPreference: contentData.colorPreference,
-                            logoUrl: contentData.logoUrl,
-                            slogan: contentData.slogan,
-                        },
+                    workingHours: contentData.workingHours || null,
+                    siteTitle: `${companyData.companyName} | OSGB`,
+                    siteDescription: contentData.slogan || contentData.services || null,
+                    keywords: ['osgb', 'isg', 'is sagligi', 'is guvenligi'],
+                    design: {
+                        primaryColor: contentData.colorPreference || '#0F766E',
+                        logoUrl: contentData.logoUrl || null,
                     },
                 },
             })
 
-            // 5. Service record (HOSTING)
-            const renewDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-            await tx.service.create({
+            await tx.projectTask.create({
                 data: {
-                    companyId: companyId!,
-                    name: `${companyData.companyName} - Web Hosting`,
-                    type: 'HOSTING',
-                    price: 1200,
-                    billingCycle: 'YEARLY',
-                    startDate: new Date(),
-                    renewDate,
-                    status: 'ACTIVE',
-                    webProjects: { connect: { id: project.id } },
+                    projectId: project.id,
+                    title: `Kickoff: ${packageData.tier} paket kurulumu`,
+                    status: 'TODO',
                 },
             })
 
             return {
                 projectId: project.id,
                 companyId: companyId!,
-                packageId: sitePackage.id,
-                pipelineRunId: pipelineRun.id,
+                packageId: project.id,
             }
         })
 
@@ -240,9 +192,13 @@ export async function getCompaniesForWizard() {
     const session = await auth()
     if (!session?.user || session.user.role !== 'ADMIN') return []
 
-    return prisma.company.findMany({
-        where: { deletedAt: null },
-        select: { id: true, name: true, phone: true, email: true, address: true, naceCode: true },
+    const companies = await prisma.company.findMany({
+        select: { id: true, name: true, phone: true, email: true, address: true },
         orderBy: { name: 'asc' },
     })
+
+    return companies.map(company => ({
+        ...company,
+        naceCode: null,
+    }))
 }

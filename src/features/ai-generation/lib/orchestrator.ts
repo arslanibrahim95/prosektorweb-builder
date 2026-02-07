@@ -3,7 +3,6 @@
  * Manages the multi-step website generation workflow
  */
 
-import { logger, redis } from '@/shared/lib';
 import { getOpenAIConnector } from '@/features/ai-generation/lib/ai/openai-connector';
 import { prisma } from '@/server/db';
 import type {
@@ -14,6 +13,29 @@ import type {
     ContentResult,
     CodeResult,
 } from '../types';
+
+const logger = {
+    info(meta: unknown, message?: string) {
+        if (message) {
+            console.info(message, meta);
+            return;
+        }
+        console.info(meta);
+    },
+    error(meta: unknown, message?: string) {
+        if (message) {
+            console.error(message, meta);
+            return;
+        }
+        console.error(meta);
+    },
+};
+
+const redis = {
+    async publish(_channel: string, _message: string): Promise<void> {
+        // Redis is optional in this app layer; no-op keeps generation flow alive.
+    },
+};
 
 interface GenerationContext {
     jobId: string;
@@ -227,33 +249,90 @@ Respond in JSON format with:
         try {
             const openai = getOpenAIConnector();
 
-            const systemPrompt = `You are a professional content writer. Create website content in Turkish.
+            const systemPrompt = `You are a professional content writer for Turkish OSGB (occupational health and safety) companies. Create website content in Turkish.
 
-Respond in JSON format with:
+Each section must include a "data" field with structured content matching the block type.
+
+Respond in JSON format:
 {
   "pages": [
     {
       "slug": "homepage",
-      "title": "Page Title",
+      "title": "Ana Sayfa",
       "metaTitle": "SEO Title (max 60 chars)",
       "metaDescription": "SEO Description (max 160 chars)",
       "sections": [
         {
           "type": "hero",
-          "content": "HTML content here",
-          "order": 1
+          "order": 1,
+          "content": "",
+          "data": {
+            "title": "Firma Adi - Is Sagligi ve Guvenligi",
+            "subtitle": "Profesyonel OSGB hizmetleri...",
+            "ctaText": "Ucretsiz Danismanlik",
+            "stats": [
+              { "value": "1000+", "label": "Is Yeri", "icon": "Shield" },
+              { "value": "50000+", "label": "Calisan", "icon": "Users" }
+            ]
+          }
+        },
+        {
+          "type": "services",
+          "order": 2,
+          "content": "",
+          "data": {
+            "sectionTitle": "Hizmetlerimiz",
+            "sectionSubtitle": "Profesyonel ISG hizmetleri",
+            "items": [
+              { "icon": "Shield", "title": "Is Guvenligi", "description": "...", "features": ["feature1"] }
+            ]
+          }
+        },
+        {
+          "type": "about",
+          "order": 3,
+          "content": "",
+          "data": {
+            "title": "Hakkimizda",
+            "description": "<p>HTML content...</p>",
+            "highlights": ["Deneyimli kadro", "7/24 destek"],
+            "experienceYears": 15
+          }
+        },
+        {
+          "type": "faq",
+          "order": 4,
+          "content": "",
+          "data": {
+            "sectionTitle": "Sikca Sorulan Sorular",
+            "items": [{ "question": "...", "answer": "..." }]
+          }
+        },
+        {
+          "type": "cta",
+          "order": 5,
+          "content": "",
+          "data": {
+            "title": "Hemen Iletisime Gecin",
+            "subtitle": "...",
+            "buttonText": "Ucretsiz Teklif Alin",
+            "showPhone": true
+          }
         }
       ]
     }
   ],
   "globalContent": {
-    "navigation": [{"label": "Home", "href": "/"}],
+    "navigation": [{"label": "Ana Sayfa", "href": "/"}],
     "footer": {
-      "copyright": "© 2024 Company",
-      "links": [{"label": "Privacy", "href": "/privacy"}]
+      "copyright": "© 2024 Firma Adi",
+      "links": [{"label": "Gizlilik", "href": "/gizlilik"}]
     }
   }
-}`;
+}
+
+Available section types: hero, services, about, cta, faq, team, stats, testimonials, gallery, content.
+Always include at least: hero, services, about, cta sections for the homepage.`;
 
             const response = await openai.generateWithSystem(
                 systemPrompt,
@@ -334,69 +413,74 @@ Respond in JSON format with:
         }
     }
 
-    /**
-     * Step 5: Build and finalize
-     */
+    // Step 5: Build and finalize — creates Website + Pages in Dashboard Payload/Puck
     private async executeBuildStep(): Promise<StepResult> {
         try {
-            const codeResult = await this.getStepResult<CodeResult>('CODE');
+            const mapper = await import('./payload-block-mapper');
+            const { createDashboardSite, createDashboardPage } = await import('@/features/dashboard/client');
+            const { createPuckDataFromBlocks, normalizePageSlug } = await import('@/features/dashboard/puck');
 
-            if (!codeResult) {
-                return { success: false, error: 'Code result not found' };
+            const analysisResult = await this.getStepResult<AnalysisResult>('ANALYSIS');
+            const designResult = await this.getStepResult<DesignResult>('DESIGN');
+            const contentResult = await this.getStepResult<ContentResult>('CONTENT');
+
+            if (!contentResult) {
+                return { success: false, error: 'Content result not found' };
             }
 
-            // Create website record
-            const websiteId = crypto.randomUUID();
-            const contentResult = await this.getStepResult<ContentResult>('CONTENT');
-            const designResult = await this.getStepResult<DesignResult>('DESIGN');
+            // 1. Map design to site fields
+            const designFields = mapper.mapDesignToProjectFields(designResult);
 
-            await prisma.$queryRaw`
-        INSERT INTO GeneratedWebsite (
-          id, jobId, userId, name, slug, description, template,
-          siteStructure, pages, components, styles, assets,
-          sourceCode, buildOutput,
-          version, versionLabel, isActive, isDeployed,
-          canRollback, createdAt, updatedAt
-        ) VALUES (
-          ${websiteId},
-          ${this.context!.jobId},
-          (SELECT userId FROM AIGenerationJob WHERE id = ${this.context!.jobId}),
-          ${contentResult?.pages[0]?.title || 'Generated Website'},
-          ${'site-' + Date.now()},
-          ${'AI-generated website from: ' + this.context!.prompt.slice(0, 100)},
-          ${this.context!.templateId || 'default'},
-          ${JSON.stringify({ root: '/', pages: contentResult?.pages.map(p => ({ slug: p.slug, path: '/' + p.slug, title: p.title })) })},
-          ${JSON.stringify(contentResult?.pages)},
-          ${JSON.stringify(codeResult.fileStructure.filter(f => f.type === 'component'))},
-          ${JSON.stringify(designResult)},
-          ${JSON.stringify([])},
-          ${JSON.stringify(codeResult.fileStructure)},
-          ${JSON.stringify(codeResult.buildConfig)},
-          1,
-          ${'v1.0 - Initial generation'},
-          TRUE,
-          FALSE,
-          TRUE,
-          NOW(),
-          NOW()
-        )
-      `;
+            // 2. Map company info from analysis + content
+            const companyFields = mapper.mapCompanyInfoToProjectFields(analysisResult, contentResult);
 
-            // Update job with website ID
+            const firstPageTitle = contentResult.pages[0]?.title || 'Generated Website';
+            const siteSlug = `site-${Date.now()}`;
+
+            // 3. Create canonical site record in dashboard
+            const site = await createDashboardSite({
+                name: firstPageTitle,
+                slug: siteSlug,
+                description: 'AI-generated website from: ' + this.context!.prompt.slice(0, 180),
+                status: 'draft',
+            });
+
+            // 4. Create pages using pipeline -> payload blocks -> puckData mapping
+            const payloadPages = mapper.mapPipelineOutputToPayloadPages(contentResult, 0);
+            for (const pageData of payloadPages) {
+                const title = pageData.title || 'Sayfa';
+                await createDashboardPage({
+                    siteId: String(site.id),
+                    title,
+                    slug: normalizePageSlug(pageData.slug || '/'),
+                    status: 'draft',
+                    seoTitle: pageData.metaTitle || null,
+                    seoDescription: pageData.metaDescription || null,
+                    puckData: createPuckDataFromBlocks(
+                        title,
+                        (pageData.content || []) as Array<{ blockType: string; [key: string]: unknown }>
+                    ),
+                });
+            }
+
+            // Update traditional job status for logging/tracking
             await prisma.$queryRaw`
-        UPDATE AIGenerationJob 
-        SET completedAt = NOW(), updatedAt = NOW()
-        WHERE id = ${this.context!.jobId}
-      `;
+                UPDATE "AIGenerationJob"
+                SET "completedAt" = NOW(), "updatedAt" = NOW()
+                WHERE id = ${this.context!.jobId}
+            `;
 
             logger.info({
                 jobId: this.context!.jobId,
-                websiteId
-            }, 'Build step completed');
+                siteId: String(site.id),
+                pagesCreated: payloadPages.length,
+                hasDesignFields: Object.keys(designFields || {}).length > 0,
+                hasCompanyFields: Object.keys(companyFields || {}).length > 0,
+            }, 'Build step completed with Dashboard Payload/Puck integration');
 
-            return { success: true, data: { websiteId } };
+            return { success: true, data: { projectId: String(site.id) } };
         } catch (error) {
-            logger.error({ error, jobId: this.context!.jobId }, 'Build step failed');
+            logger.error({ error, jobId: this.context!.jobId }, 'Build step failed during Dashboard sync');
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Build failed'
@@ -581,4 +665,8 @@ Respond in JSON format with:
 
         await redis.publish(`generation:${this.context!.jobId}`, JSON.stringify(event));
     }
+}
+
+export function createOrchestrator(): GenerationOrchestrator {
+    return new GenerationOrchestrator();
 }

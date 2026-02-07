@@ -1,4 +1,5 @@
 import type { Project, Page, Service, BlogPost } from '@/payload-types'
+import { DashboardPublicSitePayloadSchema } from '@/features/dashboard/contracts'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -92,56 +93,18 @@ function getMediaUrl(media: unknown): string | null {
 
 const DASHBOARD_PUBLIC_API_BASE = process.env.DASHBOARD_PUBLIC_API_BASE?.replace(/\/$/, '') || ''
 
-type DashboardPublicSite = {
-  brandPrimary?: string
-  brandSecondary?: string
-  description?: string | null
-  domain?: string | null
-  id?: number
-  name?: string
-  slug?: string
-}
-
-type DashboardPublicSettings = {
-  contact?: {
-    address?: string
-    email?: string
-    phone?: string
-    [key: string]: unknown
-  } | null
-  customCss?: string | null
-  footerText?: string | null
-  siteTitle?: string | null
-  socialLinks?: Array<{ platform?: string; url?: string }>
-  tagline?: string | null
-}
-
-type DashboardPuckBlock = {
-  props?: Record<string, unknown>
-  type?: string
-}
-
-type DashboardPage = {
-  puckData?: {
-    content?: DashboardPuckBlock[]
-    root?: {
-      props?: {
-        title?: string
-      }
-    }
-  } | null
-  seoDescription?: string | null
-  seoTitle?: string | null
-  slug?: string
-  title?: string
-}
-
-type DashboardSitePayload = {
-  ok?: boolean
-  pages?: DashboardPage[]
-  settings?: DashboardPublicSettings
-  site?: DashboardPublicSite
-}
+const ALLOWED_BLOCK_TYPES = new Set([
+  'hero',
+  'services',
+  'about',
+  'cta',
+  'faq',
+  'team',
+  'stats',
+  'gallery',
+  'testimonials',
+  'content',
+])
 
 const normalizeSlug = (value: string | undefined | null): string => {
   if (!value) return '/'
@@ -164,13 +127,13 @@ const slugToContentKey = (slug: string): string => {
   return normalized.replace(/^\//, '').replace(/[/-]+/g, '_').toUpperCase()
 }
 
-const toPageBlocks = (page: DashboardPage): PageBlock[] => {
+const toPageBlocks = (page: { puckData?: { content?: Array<{ props?: Record<string, unknown>; type?: string }> | null } | null }): PageBlock[] => {
   const content = Array.isArray(page.puckData?.content) ? page.puckData.content : []
   return content
     .map((entry) => {
       if (!entry || typeof entry !== 'object') return null
       const type = typeof entry.type === 'string' ? entry.type : null
-      if (!type) return null
+      if (!type || !ALLOWED_BLOCK_TYPES.has(type)) return null
 
       const props =
         entry.props && typeof entry.props === 'object' && !Array.isArray(entry.props)
@@ -192,7 +155,7 @@ const extractMainContent = (blocks: PageBlock[]): string => {
   return typeof value === 'string' ? value : ''
 }
 
-const mapSocialLinks = (settings: DashboardPublicSettings['socialLinks']) => {
+const mapSocialLinks = (settings: Array<{ platform?: string | null; url?: string | null }> | null | undefined) => {
   if (!Array.isArray(settings)) return null
 
   const byPlatform = settings.reduce((acc, link) => {
@@ -229,14 +192,24 @@ const getDashboardSiteData = async (slug: string): Promise<SiteData | null> => {
       return null
     }
 
-    const payload = (await response.json()) as DashboardSitePayload
-    if (!payload.ok || !payload.site) return null
+    const rawPayload = await response.json()
+    const parsed = DashboardPublicSitePayloadSchema.safeParse(rawPayload)
+    if (!parsed.success) {
+      console.error('Dashboard public payload schema mismatch:', parsed.error.issues[0]?.message)
+      return null
+    }
+
+    const payload = parsed.data
+    if (payload.ok === false || !payload.site) return null
 
     const site = payload.site
     const settings = payload.settings ?? {}
     const contact =
       settings.contact && typeof settings.contact === 'object' ? settings.contact : null
-    const pagesPayload = Array.isArray(payload.pages) ? payload.pages : []
+    const pagesPayload = (Array.isArray(payload.pages) ? payload.pages : []).filter((page) => {
+      const status = typeof page.status === 'string' ? page.status.toLowerCase() : ''
+      return status === 'published'
+    })
 
     const pages: SitePageData[] = pagesPayload.map((page) => {
       const normalizedSlug = normalizeSlug(page.slug)

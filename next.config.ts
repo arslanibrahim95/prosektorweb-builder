@@ -1,4 +1,5 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
+import { withPayload } from '@payloadcms/next/withPayload'
 
 const securityHeaders = [
     {
@@ -24,23 +25,32 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-    reactCompiler: true,
-    async headers() {
-        return [
-            {
-                source: '/(.*)',
-                headers: securityHeaders,
-            },
-        ];
-    },
-    images: {
-        remotePatterns: [
-            {
-                protocol: 'https',
-                hostname: 'images.unsplash.com',
-            },
-        ],
-    },
-};
+  reactCompiler: true,
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: securityHeaders,
+      },
+    ]
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
+    ],
+  },
+  webpack: (webpackConfig) => {
+    webpackConfig.resolve.extensionAlias = {
+      '.cjs': ['.cts', '.cjs'],
+      '.js': ['.ts', '.tsx', '.js', '.jsx'],
+      '.mjs': ['.mts', '.mjs'],
+    }
 
-export default nextConfig;
+    return webpackConfig
+  },
+}
+
+export default withPayload(nextConfig, { devBundleServerPackages: false })

@@ -1,5 +1,6 @@
 'use server';
 
+import { prisma } from '@/server/db';
 import { createOrchestrator } from '../lib/orchestrator';
 import type { AnalysisResult, DesignResult, ContentResult, CodeResult } from '../types';
 
@@ -19,6 +20,53 @@ interface GenerateWebsiteResult {
     error?: string;
 }
 
+interface GenerationJobSnapshot {
+    status?: string | null;
+    errorMessage?: string | null;
+    analysisResult?: unknown;
+    designResult?: unknown;
+    contentResult?: unknown;
+    codeResult?: unknown;
+    buildOutput?: unknown;
+}
+
+function parseJobJson<T>(value: unknown): T | undefined {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === 'string') {
+        try {
+            return JSON.parse(value) as T;
+        } catch {
+            return undefined;
+        }
+    }
+    if (typeof value === 'object') {
+        return value as T;
+    }
+    return undefined;
+}
+
+async function readGenerationSnapshot(jobId: string): Promise<GenerationJobSnapshot | null> {
+    const rows = await prisma.$queryRaw<GenerationJobSnapshot[]>`
+        SELECT
+            status,
+            errorMessage,
+            analysisResult,
+            designResult,
+            contentResult,
+            codeResult,
+            buildOutput
+        FROM AIGenerationJob
+        WHERE id = ${jobId}
+        LIMIT 1
+    `;
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return null;
+    }
+
+    return rows[0];
+}
+
 /**
  * Main action to generate a complete website using AI
  */
@@ -30,29 +78,37 @@ export async function generateWebsite(input: GenerateWebsiteInput): Promise<Gene
     console.log(`[generateWebsite] Prompt: ${input.prompt.slice(0, 100)}...`);
 
     try {
-        const result = await orchestrator.startGeneration(jobId, {
+        await orchestrator.startGeneration(jobId, {
             prompt: input.prompt,
             templateId: input.templateId,
-            industry: input.industry,
+            customSettings: input.industry ? { industry: input.industry } : undefined,
         });
 
-        if (!result.success) {
-            console.error(`[generateWebsite] Failed:`, result.error);
-            return { success: false, error: result.error };
+        const snapshot = await readGenerationSnapshot(jobId);
+
+        if (!snapshot) {
+            return { success: false, error: 'Generation snapshot not found' };
         }
 
-        // Get results from each step
-        const analysis = orchestrator.getStepResult<AnalysisResult>('ANALYSIS');
-        const design = orchestrator.getStepResult<DesignResult>('DESIGN');
-        const content = orchestrator.getStepResult<ContentResult>('CONTENT');
-        const code = orchestrator.getStepResult<CodeResult>('CODE');
-        const buildResult = orchestrator.getStepResult<{ websiteId: string }>('BUILD');
+        const status = (snapshot.status || '').toUpperCase();
+        if (status === 'FAILED') {
+            const message = snapshot.errorMessage || 'Generation failed';
+            console.error('[generateWebsite] Failed:', message);
+            return { success: false, error: message };
+        }
 
-        console.log(`[generateWebsite] Completed. Website ID: ${buildResult?.websiteId}`);
+        const analysis = parseJobJson<AnalysisResult>(snapshot.analysisResult);
+        const design = parseJobJson<DesignResult>(snapshot.designResult);
+        const content = parseJobJson<ContentResult>(snapshot.contentResult);
+        const code = parseJobJson<CodeResult>(snapshot.codeResult);
+        const build = parseJobJson<{ projectId?: string; websiteId?: string }>(snapshot.buildOutput);
+        const websiteId = build?.projectId || build?.websiteId;
+
+        console.log(`[generateWebsite] Completed. Website ID: ${websiteId || 'n/a'}`);
 
         return {
             success: true,
-            websiteId: buildResult?.websiteId,
+            websiteId,
             analysis,
             design,
             content,

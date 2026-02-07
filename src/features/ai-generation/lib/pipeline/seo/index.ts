@@ -60,6 +60,8 @@ export {
   getServiceBySlug,
   getAllServices,
   getMandatoryServices,
+  getAllServicesFromCMS,
+  getServiceBySlugFromCMS,
   generateLocationKeywords,
   generatePageTitle,
   generateMetaDescription,

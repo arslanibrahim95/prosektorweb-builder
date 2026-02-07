@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": true,
+    "incremental": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "tests/**/*.test.ts",
+    "src/features/ai-generation/lib/payload-block-mapper.ts",
+    "src/features/ai-generation/types/index.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next"
+  ]
+}

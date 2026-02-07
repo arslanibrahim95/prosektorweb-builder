@@ -1,277 +1,321 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import {
-    ArrowLeft,
-    FileText,
-    Sparkles,
-    Eye,
-    Upload,
-    Settings,
-    Globe,
-    Calendar,
-    Folder
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { ArrowLeft, FileText, Sparkles, Eye, Upload, Settings, Globe, Calendar, Folder } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
-// Mock project data - replace with actual fetch
-const getProject = (id: string) => ({
-    id,
-    name: "Örnek OSGB Sitesi",
-    description: "İş sağlığı ve güvenliği hizmetleri için kurumsal web sitesi",
-    template: "corporate",
-    industry: "healthcare",
-    status: "DRAFT",
-    domain: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    pages: [
-        { id: "1", name: "Ana Sayfa", slug: "/", status: "generated" },
-        { id: "2", name: "Hakkımızda", slug: "/hakkimizda", status: "generated" },
-        { id: "3", name: "Hizmetler", slug: "/hizmetler", status: "draft" },
-        { id: "4", name: "İletişim", slug: "/iletisim", status: "draft" },
-    ],
-});
+interface ProjectDetail {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  template: string | null;
+  industry: string | null;
+  status: string;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  domain: { id: string; name: string } | null;
+}
+
+interface ProjectPage {
+  id: string;
+  name: string;
+  slug: string;
+  content: string;
+  updatedAt: string;
+}
+
+const statusBadge = {
+  DRAFT: { variant: 'warning' as const, label: 'Taslak' },
+  PLANNING: { variant: 'default' as const, label: 'Planlama' },
+  DESIGNING: { variant: 'default' as const, label: 'Tasarım' },
+  DEVELOPMENT: { variant: 'default' as const, label: 'Geliştirme' },
+  REVIEW: { variant: 'warning' as const, label: 'İncelemede' },
+  LIVE: { variant: 'success' as const, label: 'Yayında' },
+  CANCELLED: { variant: 'error' as const, label: 'İptal' },
+};
 
 export default function ProjectDetailPage() {
-    const params = useParams();
-    const projectId = params.id as string;
-    const project = getProject(projectId);
-    const [activeTab, setActiveTab] = useState("overview");
+  const params = useParams();
+  const projectId = params.id as string;
 
-    const statusBadge = {
-        DRAFT: { variant: "warning" as const, label: "Taslak" },
-        GENERATING: { variant: "default" as const, label: "Üretiliyor" },
-        READY: { variant: "success" as const, label: "Hazır" },
-        PUBLISHED: { variant: "success" as const, label: "Yayında" },
+  const [activeTab, setActiveTab] = useState('overview');
+  const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [pages, setPages] = useState<ProjectPage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadData() {
+      try {
+        const [projectRes, pagesRes] = await Promise.all([
+          fetch(`/api/projects/${projectId}`),
+          fetch(`/api/projects/${projectId}/pages`),
+        ]);
+
+        const [projectJson, pagesJson] = await Promise.all([projectRes.json(), pagesRes.json()]);
+
+        if (!projectRes.ok || !projectJson.success) {
+          throw new Error(projectJson.error || 'Proje yüklenemedi');
+        }
+
+        if (!pagesRes.ok || !pagesJson.success) {
+          throw new Error(pagesJson.error || 'Sayfalar yüklenemedi');
+        }
+
+        if (active) {
+          setProject(projectJson.project);
+          setPages(pagesJson.pages || []);
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : 'Veriler yüklenemedi');
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      active = false;
     };
+  }, [projectId]);
 
-    const status = statusBadge[project.status as keyof typeof statusBadge] || statusBadge.DRAFT;
+  if (loading) {
+    return <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8 text-slate-300">Proje yükleniyor...</main>;
+  }
 
+  if (error || !project) {
     return (
-        <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-            <div className="container mx-auto px-4 py-8">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-4">
-                        <Link href="/projects">
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="w-5 h-5" />
-                            </Button>
-                        </Link>
-                        <div>
-                            <div className="flex items-center gap-3">
-                                <h1 className="text-2xl font-bold text-white">{project.name}</h1>
-                                <Badge variant={status.variant}>{status.label}</Badge>
-                            </div>
-                            <p className="text-slate-400 text-sm">{project.description}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Link href={`/projects/${projectId}/generate`}>
-                            <Button variant="outline">
-                                <Sparkles className="w-4 h-4" />
-                                AI Üret
-                            </Button>
-                        </Link>
-                        <Link href={`/projects/${projectId}/preview`}>
-                            <Button variant="outline">
-                                <Eye className="w-4 h-4" />
-                                Önizle
-                            </Button>
-                        </Link>
-                        <Button>
-                            <Upload className="w-4 h-4" />
-                            Yayınla
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Tabs */}
-                <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList>
-                        <TabsTrigger value="overview">
-                            <Folder className="w-4 h-4 mr-2" />
-                            Genel Bakış
-                        </TabsTrigger>
-                        <TabsTrigger value="pages">
-                            <FileText className="w-4 h-4 mr-2" />
-                            Sayfalar
-                        </TabsTrigger>
-                        <TabsTrigger value="settings">
-                            <Settings className="w-4 h-4 mr-2" />
-                            Ayarlar
-                        </TabsTrigger>
-                    </TabsList>
-
-                    {/* Overview Tab */}
-                    <TabsContent value="overview">
-                        <div className="grid md:grid-cols-3 gap-6">
-                            {/* Stats Cards */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="text-lg flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-purple-400" />
-                                        Sayfalar
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-3xl font-bold text-white">{project.pages.length}</p>
-                                    <p className="text-slate-400 text-sm">
-                                        {project.pages.filter(p => p.status === "generated").length} üretildi
-                                    </p>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="text-lg flex items-center gap-2">
-                                        <Globe className="w-5 h-5 text-blue-400" />
-                                        Domain
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-lg font-medium text-white">
-                                        {project.domain || "Atanmadı"}
-                                    </p>
-                                    <p className="text-slate-400 text-sm">
-                                        {project.domain ? "Bağlı" : "Domain ekleyin"}
-                                    </p>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="text-lg flex items-center gap-2">
-                                        <Calendar className="w-5 h-5 text-green-400" />
-                                        Son Güncelleme
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-lg font-medium text-white">
-                                        {new Date(project.updatedAt).toLocaleDateString("tr-TR")}
-                                    </p>
-                                    <p className="text-slate-400 text-sm">
-                                        {new Date(project.updatedAt).toLocaleTimeString("tr-TR")}
-                                    </p>
-                                </CardContent>
-                            </Card>
-                        </div>
-
-                        {/* Quick Actions */}
-                        <Card className="mt-6">
-                            <CardHeader>
-                                <CardTitle>Hızlı Aksiyonlar</CardTitle>
-                                <CardDescription>Projenizi geliştirmek için bir aksiyon seçin</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="grid md:grid-cols-3 gap-4">
-                                    <Link href={`/projects/${projectId}/generate`}>
-                                        <div className="p-4 rounded-lg border border-white/10 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all cursor-pointer">
-                                            <Sparkles className="w-8 h-8 text-purple-400 mb-3" />
-                                            <h3 className="font-medium text-white">AI İçerik Üret</h3>
-                                            <p className="text-sm text-slate-400">Yapay zeka ile sayfa içeriği oluşturun</p>
-                                        </div>
-                                    </Link>
-                                    <Link href={`/projects/${projectId}/editor`}>
-                                        <div className="p-4 rounded-lg border border-white/10 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all cursor-pointer">
-                                            <FileText className="w-8 h-8 text-blue-400 mb-3" />
-                                            <h3 className="font-medium text-white">İçerik Düzenle</h3>
-                                            <p className="text-sm text-slate-400">Sayfaları manuel olarak düzenleyin</p>
-                                        </div>
-                                    </Link>
-                                    <Link href={`/projects/${projectId}/preview`}>
-                                        <div className="p-4 rounded-lg border border-white/10 hover:border-green-500/50 hover:bg-green-500/10 transition-all cursor-pointer">
-                                            <Eye className="w-8 h-8 text-green-400 mb-3" />
-                                            <h3 className="font-medium text-white">Önizleme</h3>
-                                            <p className="text-sm text-slate-400">Siteyi canlı olarak görüntüleyin</p>
-                                        </div>
-                                    </Link>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-
-                    {/* Pages Tab */}
-                    <TabsContent value="pages">
-                        <Card>
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle>Sayfa Listesi</CardTitle>
-                                    <Button size="sm">
-                                        <FileText className="w-4 h-4" />
-                                        Yeni Sayfa
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-2">
-                                    {project.pages.map((page) => (
-                                        <Link
-                                            key={page.id}
-                                            href={`/projects/${projectId}/editor?page=${page.id}`}
-                                            className="flex items-center justify-between p-4 rounded-lg border border-white/10 hover:border-purple-500/50 hover:bg-white/5 transition-all"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <FileText className="w-5 h-5 text-slate-400" />
-                                                <div>
-                                                    <p className="font-medium text-white">{page.name}</p>
-                                                    <p className="text-sm text-slate-500">{page.slug}</p>
-                                                </div>
-                                            </div>
-                                            <Badge variant={page.status === "generated" ? "success" : "warning"}>
-                                                {page.status === "generated" ? "Üretildi" : "Taslak"}
-                                            </Badge>
-                                        </Link>
-                                    ))}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-
-                    {/* Settings Tab */}
-                    <TabsContent value="settings">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Proje Ayarları</CardTitle>
-                                <CardDescription>Projenizin genel ayarlarını düzenleyin</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="grid md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-sm text-slate-400">Proje Adı</label>
-                                        <p className="text-white font-medium">{project.name}</p>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm text-slate-400">Şablon</label>
-                                        <p className="text-white font-medium capitalize">{project.template}</p>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm text-slate-400">Sektör</label>
-                                        <p className="text-white font-medium capitalize">{project.industry}</p>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm text-slate-400">Oluşturma Tarihi</label>
-                                        <p className="text-white font-medium">
-                                            {new Date(project.createdAt).toLocaleDateString("tr-TR")}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="pt-4 border-t border-white/10">
-                                    <Button variant="outline" className="text-red-400 border-red-400/50 hover:bg-red-400/10">
-                                        Projeyi Sil
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                </Tabs>
-            </div>
-        </main>
+      <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8">
+        <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
+          {error || 'Proje bulunamadı'}
+        </div>
+      </main>
     );
+  }
+
+  const status = statusBadge[project.status as keyof typeof statusBadge] || statusBadge.DRAFT;
+  const generatedPages = pages.filter((page) => page.content.trim().length > 0).length;
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/projects">
+              <Button variant="ghost" size="icon">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-white">{project.name}</h1>
+                <Badge variant={status.variant}>{status.label}</Badge>
+              </div>
+              <p className="text-sm text-slate-400">{project.description || 'Açıklama girilmemiş'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href={`/projects/${projectId}/generate`}>
+              <Button variant="outline">
+                <Sparkles className="h-4 w-4" />
+                AI Üret
+              </Button>
+            </Link>
+            <Link href={`/projects/${projectId}/preview`}>
+              <Button variant="outline">
+                <Eye className="h-4 w-4" />
+                Önizle
+              </Button>
+            </Link>
+            <Button>
+              <Upload className="h-4 w-4" />
+              Yayınla
+            </Button>
+          </div>
+        </div>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="overview">
+              <Folder className="mr-2 h-4 w-4" />
+              Genel Bakış
+            </TabsTrigger>
+            <TabsTrigger value="pages">
+              <FileText className="mr-2 h-4 w-4" />
+              Sayfalar
+            </TabsTrigger>
+            <TabsTrigger value="settings">
+              <Settings className="mr-2 h-4 w-4" />
+              Ayarlar
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview">
+            <div className="grid gap-6 md:grid-cols-3">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <FileText className="h-5 w-5 text-purple-400" />
+                    Sayfalar
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold text-white">{pages.length}</p>
+                  <p className="text-sm text-slate-400">{generatedPages} sayfada içerik var</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Globe className="h-5 w-5 text-blue-400" />
+                    Domain
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-lg font-medium text-white">{project.domain?.name || 'Atanmadı'}</p>
+                  <p className="text-sm text-slate-400">{project.domain ? 'Bağlı' : 'Henüz domain bağlanmadı'}</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Calendar className="h-5 w-5 text-green-400" />
+                    Son Güncelleme
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-lg font-medium text-white">{new Date(project.updatedAt).toLocaleDateString('tr-TR')}</p>
+                  <p className="text-sm text-slate-400">{new Date(project.updatedAt).toLocaleTimeString('tr-TR')}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Hızlı Aksiyonlar</CardTitle>
+                <CardDescription>Proje üzerinde devam etmek için bir yol seçin</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Link href={`/projects/${projectId}/generate`}>
+                    <div className="cursor-pointer rounded-lg border border-white/10 p-4 transition-all hover:border-purple-500/50 hover:bg-purple-500/10">
+                      <Sparkles className="mb-3 h-8 w-8 text-purple-400" />
+                      <h3 className="font-medium text-white">AI İçerik Üret</h3>
+                      <p className="text-sm text-slate-400">Temel sayfaları otomatik üret</p>
+                    </div>
+                  </Link>
+                  <Link href={`/projects/${projectId}/editor`}>
+                    <div className="cursor-pointer rounded-lg border border-white/10 p-4 transition-all hover:border-blue-500/50 hover:bg-blue-500/10">
+                      <FileText className="mb-3 h-8 w-8 text-blue-400" />
+                      <h3 className="font-medium text-white">İçerik Düzenle</h3>
+                      <p className="text-sm text-slate-400">Sayfaları manuel güncelle</p>
+                    </div>
+                  </Link>
+                  <Link href={`/projects/${projectId}/preview`}>
+                    <div className="cursor-pointer rounded-lg border border-white/10 p-4 transition-all hover:border-green-500/50 hover:bg-green-500/10">
+                      <Eye className="mb-3 h-8 w-8 text-green-400" />
+                      <h3 className="font-medium text-white">Önizle</h3>
+                      <p className="text-sm text-slate-400">Tasarımı canlı gör</p>
+                    </div>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="pages">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Sayfa Listesi</CardTitle>
+                  <Link href={`/projects/${projectId}/editor`}>
+                    <Button size="sm">
+                      <FileText className="h-4 w-4" />
+                      Düzenleyiciye Git
+                    </Button>
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {pages.length === 0 ? (
+                  <p className="text-slate-400">Henüz sayfa yok. Önce AI üretimi başlatın.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {pages.map((page) => (
+                      <Link
+                        key={page.id}
+                        href={`/projects/${projectId}/editor?page=${page.id}`}
+                        className="flex items-center justify-between rounded-lg border border-white/10 p-4 transition-all hover:border-purple-500/50 hover:bg-white/5"
+                      >
+                        <div className="flex items-center gap-3">
+                          <FileText className="h-5 w-5 text-slate-400" />
+                          <div>
+                            <p className="font-medium text-white">{page.name}</p>
+                            <p className="text-sm text-slate-500">/{page.slug}</p>
+                          </div>
+                        </div>
+                        <Badge variant={page.content.trim().length > 0 ? 'success' : 'warning'}>
+                          {page.content.trim().length > 0 ? 'Hazır' : 'Taslak'}
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="settings">
+            <Card>
+              <CardHeader>
+                <CardTitle>Proje Ayarları</CardTitle>
+                <CardDescription>Temel proje metadatası</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="text-sm text-slate-400">Proje Adı</label>
+                    <p className="font-medium text-white">{project.name}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400">Slug</label>
+                    <p className="font-medium text-white">{project.slug}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400">Şablon</label>
+                    <p className="font-medium text-white">{project.template || 'standard'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400">Sektör</label>
+                    <p className="font-medium text-white">{project.industry || 'OSGB'}</p>
+                  </div>
+                </div>
+                <div className="border-t border-white/10 pt-4">
+                  <Button variant="outline" className="border-red-400/50 text-red-400 hover:bg-red-400/10">
+                    Projeyi Sil
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </main>
+  );
 }

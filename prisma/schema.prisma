@@ -65,6 +65,7 @@ model Company {
   logoUrl     String?
   users       User[]
   projects    WebProject[]
+  media       SiteMedia[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -116,6 +117,8 @@ model WebProject {
   generatedContents GeneratedContent[]
   pages             Page[]
   tasks             ProjectTask[]
+  siteSettings      SiteSettings?
+  blogPosts         BlogPost[]
   
   // Finances
   price       Float?
@@ -259,4 +262,72 @@ model ApiConfig {
   config    Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// SITE CONTENT MODELS
+// ==========================================
+
+model SiteSettings {
+  id              String     @id @default(cuid())
+  projectId       String     @unique
+  project         WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // İletişim
+  phone           String?
+  email           String?
+  address         String?    @db.Text
+  workingHours    String?
+  mapEmbed        String?    @db.Text
+
+  // Sosyal Medya
+  socialMedia     Json?      // { facebook, twitter, instagram, linkedin, youtube }
+
+  // SEO
+  siteTitle       String?
+  siteDescription String?    @db.Text
+  keywords        String[]
+
+  // Tasarım
+  design          Json?      // { primaryColor, secondaryColor, fontHeading, fontBody, logoUrl, faviconUrl }
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model SiteMedia {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  filename  String
+  url       String
+  category  String   @default("GENERAL") // GENERAL, LOGO, HERO, GALLERY, TEAM, etc.
+  alt       String?
+  size      Int?
+  mimeType  String?
+  createdAt DateTime @default(now())
+}
+
+enum BlogPostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model BlogPost {
+  id          String         @id @default(cuid())
+  projectId   String
+  project     WebProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  slug        String
+  excerpt     String?        @db.Text
+  content     String         @db.Text
+  coverImage  String?
+  status      BlogPostStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([projectId, slug])
+  @@index([projectId, status])
 }

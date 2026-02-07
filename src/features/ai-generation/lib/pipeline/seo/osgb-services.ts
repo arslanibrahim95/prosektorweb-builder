@@ -151,6 +151,7 @@ export const OSGB_SERVICES: OsgbService[] = [
     legalReferences: [
       "6331 sayili Is Sagligi ve Guvenligi Kanunu",
       "Is Sagligi ve Guvenligi Risk Degerlendirmesi Yonetmeligi",
+      "2026 Yili Guncel Idari Para Cezalari Mevzuati",
     ],
   },
 
@@ -451,6 +452,77 @@ export const OSGB_SERVICES: OsgbService[] = [
     legalReferences: [
       "Is Sagligi ve Guvenligi Hizmetleri Yonetmeligi",
       "6331 sayili Is Sagligi ve Guvenligi Kanunu",
+      "23 Aralik 2025 Tarihli Digital Sozlesme Yonetmeligi",
+    ],
+  },
+  {
+    id: "isg-ceza-danismanligi",
+    name: "İSG Ceza ve Mevzuat Danismanligi",
+    slug: "isg-ceza-danismanligi",
+    shortDescription: "2026 guncel İSG cezalari ve yasal uyum danismanligi",
+    keywords: {
+      primary: ["isg cezalari 2026", "is guvenligi cezasi", "isg mevzuat danismanligi"],
+      secondary: ["6331 sayili kanun cezalar", "isyeri hekimi calistirmama cezasi", "isg para cezalari"],
+      longTail: [
+        "2026 isg idari para cezalari listesi",
+        "is guvenligi uzmani calistirmama cezasi 2026",
+        "risk analizi yaptirmama cezası ne kadar",
+        "isg cezasindan nasil kurtulunur",
+      ],
+    },
+    locationKeywordPatterns: [
+      "{sehir} isg ceza danismanligi",
+      "{sehir} is guvenligi mevzuat yardimi",
+      "{ilce} isg cezalarindan korunma",
+    ],
+    requiredSections: [
+      "hero",
+      "hizmet_tanimi",
+      "ceza_listesi_2026",
+      "yasal_sorun_cozumu",
+      "risk_analizi_onemi",
+      "fiyatlandirma_bilgi",
+      "sss",
+      "iletisim_cta",
+    ],
+    legalReferences: [
+      "6331 sayili Is Sagligi ve Guvenligi Kanunu",
+      "2026 Yeniden Degerleme Orani Karari",
+    ],
+  },
+  {
+    id: "periyodik-kontrol-akreditasyon",
+    name: "Akredite Periyodik Kontrol",
+    slug: "akredite-periyodik-kontrol",
+    shortDescription: "TÜRKAK akredite 8 ana ekipman grubu periyodik kontrolu",
+    keywords: {
+      primary: ["akredite periyodik kontrol", "is ekipmanlari muayene", "turkak onayli kontrol"],
+      secondary: ["buhar kazani periyodik kontrol", "kule vinc muayene", "asansor kontrol"],
+      longTail: [
+        "akredite periyodik kontrol zorunlulugu 2026",
+        "buhar kazani periyodik kontrol fiyati",
+        "hangi ekipmanlar akredite kontrol edilmeli",
+        "isg katip periyodik kontrol sozlesmesi",
+      ],
+    },
+    locationKeywordPatterns: [
+      "{sehir} akredite periyodik kontrol",
+      "{ilce} periyodik muayene servisi",
+      "{sehir} turkak onayli muayene",
+    ],
+    requiredSections: [
+      "hero",
+      "hizmet_tanimi",
+      "akreditasyon_onemi",
+      "ekipman_listesi",
+      "isg_katip_sozlesme",
+      "fiyatlandirma_bilgi",
+      "sss",
+      "iletisim_cta",
+    ],
+    legalReferences: [
+      "Is Ekipmanlarinin Kullaniminda Saglik ve Guvenlik Sartlari Yonetmeligi",
+      "TURKAK Muayene Kurulusu Akreditasyon Standartlari",
     ],
   },
 ];
@@ -487,6 +559,77 @@ export function getMandatoryServices(): OsgbService[] {
     "isg-egitimi",
   ];
   return OSGB_SERVICES.filter((s) => mandatoryIds.includes(s.id));
+}
+
+/**
+ * Payload CMS'den tum hizmetleri getir
+ */
+export async function getAllServicesFromCMS(): Promise<OsgbService[]> {
+  try {
+    const { getPayloadInstance } = await import('@/lib/payload');
+    const payload = await getPayloadInstance();
+    const result = await payload.find({
+      collection: 'services',
+      limit: 100,
+    });
+
+    return result.docs.map(doc => ({
+      id: String(doc.id),
+      name: doc.name,
+      slug: doc.slug,
+      shortDescription: doc.shortDescription,
+      keywords: {
+        primary: (doc.keywords as any)?.primary || [],
+        secondary: (doc.keywords as any)?.secondary || [],
+        longTail: (doc.keywords as any)?.longTail || [],
+      },
+      locationKeywordPatterns: doc.locationKeywordPatterns || [],
+      requiredSections: doc.requiredSections || [],
+      targetSectors: doc.targetSectors || [],
+      legalReferences: doc.legalReferences || [],
+    }));
+  } catch (error) {
+    console.warn('Payload Services fetch failed, falling back to hardcoded list:', error);
+    return OSGB_SERVICES;
+  }
+}
+
+/**
+ * Slug'a gore hizmet getir (CMS Oncelikli)
+ */
+export async function getServiceBySlugFromCMS(slug: string): Promise<OsgbService | undefined> {
+  try {
+    const { getPayloadInstance } = await import('@/lib/payload');
+    const payload = await getPayloadInstance();
+    const result = await payload.find({
+      collection: 'services',
+      where: {
+        slug: { equals: slug },
+      },
+      limit: 1,
+    });
+
+    if (result.docs.length === 0) return getServiceBySlug(slug);
+
+    const doc = result.docs[0];
+    return {
+      id: String(doc.id),
+      name: doc.name,
+      slug: doc.slug,
+      shortDescription: doc.shortDescription,
+      keywords: {
+        primary: (doc.keywords as any)?.primary || [],
+        secondary: (doc.keywords as any)?.secondary || [],
+        longTail: (doc.keywords as any)?.longTail || [],
+      },
+      locationKeywordPatterns: doc.locationKeywordPatterns || [],
+      requiredSections: doc.requiredSections || [],
+      targetSectors: doc.targetSectors || [],
+      legalReferences: doc.legalReferences || [],
+    };
+  } catch (error) {
+    return getServiceBySlug(slug);
+  }
 }
 
 /**

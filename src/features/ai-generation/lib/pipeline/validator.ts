@@ -35,6 +35,11 @@ const INPUT_SCHEMAS: Record<PipelineStage, ValidationRule[]> = {
     { field: "projectId", required: true, type: "string" },
     { field: "company", required: true, type: "object" },
   ],
+  keyword_discovery: [
+    { field: "projectId", required: true, type: "string" },
+    { field: "company", required: true, type: "object" },
+    { field: "research", required: true, type: "object" },
+  ],
   design: [
     { field: "projectId", required: true, type: "string" },
     { field: "company", required: true, type: "object" },
@@ -95,6 +100,11 @@ const OUTPUT_SCHEMAS: Record<PipelineStage, ValidationRule[]> = {
     { field: "projectId", required: true, type: "string" },
     { field: "keywords", required: true, type: "object" },
   ],
+  keyword_discovery: [
+    { field: "projectId", required: true, type: "string" },
+    { field: "discoveredKeywords", required: true, type: "array" },
+    { field: "suggestedContentClusters", required: true, type: "array" },
+  ],
   design: [
     { field: "projectId", required: true, type: "string" },
     { field: "colors", required: true, type: "object" },
@@ -122,6 +132,9 @@ const OUTPUT_SCHEMAS: Record<PipelineStage, ValidationRule[]> = {
   build: [
     { field: "projectId", required: true, type: "string" },
     { field: "status", required: true, type: "string" },
+    { field: "share", required: false, type: "object" },
+    { field: "share.url", required: false, type: "string", pattern: /^https?:\/\/.+/ },
+    { field: "share.path", required: false, type: "string", pattern: /^\// },
   ],
   ui_ux: [
     { field: "projectId", required: true, type: "string" },
@@ -140,6 +153,9 @@ const OUTPUT_SCHEMAS: Record<PipelineStage, ValidationRule[]> = {
     { field: "projectId", required: true, type: "string" },
     { field: "deploymentId", required: true, type: "string" },
     { field: "url", required: true, type: "string" },
+    { field: "share", required: false, type: "object" },
+    { field: "share.url", required: false, type: "string", pattern: /^https?:\/\/.+/ },
+    { field: "share.path", required: false, type: "string", pattern: /^\// },
   ],
 };
 
@@ -302,6 +318,7 @@ export class PipelineValidator {
     const stages: PipelineStage[] = [
       "input",
       "research",
+      "keyword_discovery",
       "design",
       "images",
       "content",

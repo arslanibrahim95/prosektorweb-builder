@@ -18,6 +18,7 @@ export * from "./types";
 export * from "./runner";
 export * from "./validator";
 export * from "./expectation";
+export * from "./share";
 
 // AI provider configuration
 export * from "./ai-providers";

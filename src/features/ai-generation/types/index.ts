@@ -114,6 +114,7 @@ export interface ContentResult {
             type: string;
             content: string;
             order: number;
+            data?: Record<string, unknown>;
         }[];
     }[];
     globalContent: {

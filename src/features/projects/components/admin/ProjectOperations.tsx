@@ -30,6 +30,8 @@ export function ProjectOperations({ project }: Props) {
     const [result, setResult] = useState<OpsResult | null>(null)
     const [previewSubdomain, setPreviewSubdomain] = useState('')
     const [forwardEmail, setForwardEmail] = useState('')
+    const demoBaseUrl = (process.env.NEXT_PUBLIC_DEMO_BASE_URL || 'https://demo.prosektorweb.com').replace(/\/$/, '')
+    const demoShareUrl = project.previewUrl || (project.slug ? `${demoBaseUrl}/${project.slug}` : '')
 
     const handlePreview = async () => {
         if (!previewSubdomain) return
@@ -112,7 +114,7 @@ export function ProjectOperations({ project }: Props) {
             </div>
 
             {/* Demo Link Sharing */}
-            {project.slug && (
+            {demoShareUrl && (
                 <div className="bg-white rounded-2xl border border-neutral-200 p-6">
                     <h2 className="text-lg font-bold text-neutral-900 mb-4 flex items-center gap-2">
                         <Share2 className="w-5 h-5 text-emerald-600" />
@@ -121,14 +123,13 @@ export function ProjectOperations({ project }: Props) {
                     <div className="bg-emerald-50 p-4 rounded-xl mb-4">
                         <div className="text-sm text-emerald-700 font-semibold mb-1">Demo URL</div>
                         <div className="text-emerald-600 font-mono text-sm break-all">
-                            {typeof window !== 'undefined' ? window.location.origin : ''}/demo/{project.slug}
+                            {demoShareUrl}
                         </div>
                     </div>
                     <div className="flex gap-2">
                         <button
                             onClick={() => {
-                                const url = `${window.location.origin}/demo/${project.slug}`
-                                navigator.clipboard.writeText(url)
+                                navigator.clipboard.writeText(demoShareUrl)
                                 setResult({ success: true, message: 'Link kopyalandi!' })
                             }}
                             className="flex-1 px-4 py-3 bg-neutral-100 text-neutral-700 rounded-xl font-medium hover:bg-neutral-200 flex items-center justify-center gap-2"
@@ -137,7 +138,7 @@ export function ProjectOperations({ project }: Props) {
                             Kopyala
                         </button>
                         <a
-                            href={`https://wa.me/?text=${encodeURIComponent(`${project.name} - Demo: ${typeof window !== 'undefined' ? window.location.origin : ''}/demo/${project.slug}`)}`}
+                            href={`https://wa.me/?text=${encodeURIComponent(`${project.name} - Demo: ${demoShareUrl}`)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 flex items-center justify-center gap-2"

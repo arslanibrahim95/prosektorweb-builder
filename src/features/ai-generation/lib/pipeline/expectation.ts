@@ -9,8 +9,11 @@ import {
   PipelineStage,
   InputStageOutput,
   InputStageExpectation,
+  ResearchStageInput,
   ResearchStageOutput,
   ResearchStageExpectation,
+  KeywordDiscoveryStageOutput,
+  KeywordDiscoveryStageExpectation,
   DesignStageOutput,
   DesignStageExpectation,
   ImagesStageOutput,
@@ -32,6 +35,7 @@ import {
 type ExpectationMap = {
   input: InputStageExpectation;
   research: ResearchStageExpectation;
+  keyword_discovery: KeywordDiscoveryStageExpectation;
   design: DesignStageExpectation;
   images: ImagesStageExpectation;
   content: ContentStageExpectation;
@@ -45,6 +49,7 @@ type ExpectationMap = {
 type OutputMap = {
   input: InputStageOutput;
   research: ResearchStageOutput;
+  keyword_discovery: KeywordDiscoveryStageOutput;
   design: DesignStageOutput;
   images: ImagesStageOutput;
   content: ContentStageOutput;
@@ -68,6 +73,8 @@ export class ExpectationGenerator {
         return this.generateFromInput(output as InputStageOutput) as ExpectationMap[T];
       case "research":
         return this.generateFromResearch(output as ResearchStageOutput) as ExpectationMap[T];
+      case "keyword_discovery":
+        return this.generateFromKeywordDiscovery(output as KeywordDiscoveryStageOutput) as ExpectationMap[T];
       case "design":
         return this.generateFromDesign(output as DesignStageOutput) as ExpectationMap[T];
       case "images":
@@ -163,11 +170,37 @@ export class ExpectationGenerator {
     }
 
     return {
-      nextStage: "design",
+      nextStage: "keyword_discovery",
       expectedOutputs: {
         suggestedColors: [...new Set(suggestedColors)],
         suggestedFonts,
-        designDirection,
+        estimatedDuration: "1-2 dakika",
+      },
+    };
+  }
+
+  /**
+   * Generate expectation after KEYWORD DISCOVERY stage
+   */
+  private generateFromKeywordDiscovery(output: KeywordDiscoveryStageOutput): KeywordDiscoveryStageExpectation {
+    const { discoveredKeywords } = output;
+
+    // Suggest modules based on keywords (e.g., if calculator-related keywords found, suggest calculator)
+    const suggestedModules = ["Hero", "ServiceList", "FAQ", "CTA"];
+
+    if (discoveredKeywords.some(k => k.keyword.includes("fiyat") || k.keyword.includes("ucret"))) {
+      suggestedModules.push("PricingTable");
+    }
+
+    if (discoveredKeywords.some(k => k.keyword.includes("ceza") || k.keyword.includes("mevzuat"))) {
+      suggestedModules.push("ComplianceAlert");
+    }
+
+    return {
+      nextStage: "design",
+      expectedOutputs: {
+        seoOptimizedStructure: true,
+        suggestedModules,
       },
     };
   }
@@ -451,12 +484,12 @@ export class ExpectationGenerator {
    * Generate expectation after PUBLISH stage (final stage)
    */
   private generateFromPublish(output: PublishStageOutput): PublishStageExpectation {
-    const { url } = output;
+    const liveUrl = output.share?.url || output.url;
 
     return {
       nextStage: null,
       expectedOutputs: {
-        liveUrl: url,
+        liveUrl,
         monitoringSetup: true,
         analyticsSetup: true,
       },
@@ -519,6 +552,7 @@ export class ExpectationGenerator {
       estimatedDeployTime: "Deploy suresi",
       requiredActions: "Gerekli aksiyonlar",
       liveUrl: "Canli URL",
+      shareUrl: "Paylasim URL",
       monitoringSetup: "Monitoring",
       analyticsSetup: "Analytics",
     };

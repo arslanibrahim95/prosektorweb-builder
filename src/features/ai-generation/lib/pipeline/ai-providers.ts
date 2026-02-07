@@ -143,6 +143,20 @@ export const STAGE_AI_CONFIG: Record<string, StageAIConfig> = {
 Detayli ve yapilandirilmis Markdown formatinda cikti ver.`,
     outputFormat: "markdown",
   },
+  keyword_discovery: {
+    primary: "gemini",
+    fallback: "chatgpt",
+    isAutomated: true,
+    cliTemplate: `cat {{input}} | gemini chat --model gemini-2.0-flash`,
+    systemPrompt: `Sen bir SEO ve Trend Analiz uzmanisin. Firma ve arastirma verilerini kullanarak:
+1. 2026 yili icin stratejik anahtar kelimeleri belirle (Isg-Katip dijital sozlesme, akredite periyodik kontrol vb.)
+2. Arama hacmi ve zorluk tahmini yap
+3. Icerik kumeleri (content clusters) oner
+4. Mevzuat degisiklikleri ile ilgili kritik uyarilari listele (idari para cezalari vb.)
+
+SADECE JSON formatinda cikti ver.`,
+    outputFormat: "json",
+  },
   design: {
     primary: "glm",
     fallback: "claude",

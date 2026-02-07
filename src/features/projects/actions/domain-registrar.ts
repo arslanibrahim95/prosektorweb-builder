@@ -136,30 +136,30 @@ const purchaseDomainHandler = async ({ domain, contactInfo, companyId }: {
         email: string
     },
     companyId?: string
-}) => {
+}): Promise<RegistrationResult> => {
     await requireAdmin()
 
     const cf = await getCloudflareService()
     if (!cf) {
-        throw new Error('Cloudflare yapılandırılmamış')
+        return { success: false, error: 'Cloudflare yapılandırılmamış' }
     }
 
     // Pre-flight Check: Verify availability and Premium status again
     const availability = await cf.checkDomainAvailability(domain)
     if (!availability.available) {
-        throw new Error('Alan adı artık müsait değil.')
+        return { success: false, error: 'Alan adı artık müsait değil.' }
     }
 
     // Block Premium domains for safety
     if (availability.premium) {
-        throw new Error('Premium alan adları şu an otomatik satın alınamaz.')
+        return { success: false, error: 'Premium alan adları şu an otomatik satın alınamaz.' }
     }
 
     // Register domain via Cloudflare
     const result = await cf.registerDomain(domain, 1, contactInfo)
 
     if (!result.success || !result.domain) {
-        throw new Error(result.error || 'Domain kaydı alınamadı')
+        return { success: false, error: result.error || 'Domain kaydı alınamadı' }
     }
 
     // Save to our database
@@ -172,14 +172,15 @@ const purchaseDomainHandler = async ({ domain, contactInfo, companyId }: {
     await prisma.domain.create({
         data: {
             name: domain,
-            extension: tld,
             status: 'ACTIVE',
             registrar: 'Cloudflare',
             serverIp: serverIp || null,
-            registeredAt: new Date(),
-            expiresAt,
-            companyId: companyId || null,
-            notes: 'Cloudflare üzerinden satın alındı',
+            notes: [
+                'Cloudflare üzerinden satın alındı',
+                `TLD: ${tld}`,
+                `Expires: ${expiresAt.toISOString()}`,
+                companyId ? `Company: ${companyId}` : null,
+            ].filter(Boolean).join('\n'),
         },
     })
 
@@ -210,7 +211,7 @@ const purchaseDomainHandler = async ({ domain, contactInfo, companyId }: {
     })
 
     revalidatePath('/admin/domains')
-    return result.domain
+    return { success: true, domain: result.domain }
 }
 
 export const purchaseDomain = createSafeAction('purchaseDomain', purchaseDomainHandler)

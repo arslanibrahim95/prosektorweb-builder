@@ -17,6 +17,8 @@ import {
   InputStageOutput,
   ResearchStageInput,
   ResearchStageOutput,
+  KeywordDiscoveryStageInput,
+  KeywordDiscoveryStageOutput,
   DesignStageInput,
   DesignStageOutput,
   ImagesStageInput,
@@ -36,6 +38,11 @@ import {
 } from "./types";
 import { PipelineValidator } from "./validator";
 import { ExpectationGenerator } from "./expectation";
+import {
+  createPipelineShareInfo,
+  normalizePipelineStageShare,
+  resolveDemoBaseUrl,
+} from "./share";
 
 // Stage handler type
 type StageHandler<TInput, TOutput> = (input: TInput) => Promise<TOutput>;
@@ -56,6 +63,7 @@ export type EventListener = (event: PipelineEvent) => void;
 export interface PipelineRunnerOptions {
   vibeMode?: boolean;
   domain?: string;
+  demoBaseUrl?: string;
   platform?: "vercel" | "netlify" | "cloudflare" | "custom";
 }
 
@@ -70,6 +78,7 @@ export class PipelineRunner {
   private handlers: {
     input?: StageHandler<InputStageInput, InputStageOutput>;
     research?: StageHandler<ResearchStageInput, ResearchStageOutput>;
+    keyword_discovery?: StageHandler<KeywordDiscoveryStageInput, KeywordDiscoveryStageOutput>;
     design?: StageHandler<DesignStageInput, DesignStageOutput>;
     images?: StageHandler<ImagesStageInput, ImagesStageOutput>;
     content?: StageHandler<ContentStageInput, ContentStageOutput>;
@@ -87,6 +96,7 @@ export class PipelineRunner {
       vibeMode: false,
       platform: "vercel",
       ...options,
+      demoBaseUrl: resolveDemoBaseUrl(options.demoBaseUrl),
     };
   }
 
@@ -131,6 +141,7 @@ export class PipelineRunner {
       stages: {
         input: { status: "pending" },
         research: { status: "pending" },
+        keyword_discovery: { status: "pending" },
         design: { status: "pending" },
         images: { status: "pending" },
         content: { status: "pending" },
@@ -226,7 +237,8 @@ export class PipelineRunner {
 
     try {
       // Execute handler
-      const output = (await handler(input as any)) as TOutput;
+      const rawOutput = (await handler(input as any)) as TOutput;
+      const output = this.normalizeStageOutput(stage, rawOutput) as TOutput;
       const duration = Date.now() - startTime;
 
       // Validate output
@@ -289,6 +301,34 @@ export class PipelineRunner {
 
       throw error;
     }
+  }
+
+  private normalizeStageOutput(stage: PipelineStage, output: unknown): unknown {
+    if (!output || typeof output !== "object") {
+      return output;
+    }
+
+    const outputRecord = output as Record<string, unknown>;
+    const slug =
+      this.state?.stages?.input?.output?.slug ||
+      this.state?.stages?.build?.output?.share?.slug ||
+      null;
+
+    if (stage === "build") {
+      return normalizePipelineStageShare("build", outputRecord, {
+        slug,
+        demoBaseUrl: this.options.demoBaseUrl,
+      });
+    }
+
+    if (stage === "publish") {
+      return normalizePipelineStageShare("publish", outputRecord, {
+        slug,
+        demoBaseUrl: this.options.demoBaseUrl,
+      });
+    }
+
+    return output;
   }
 
   /**
@@ -429,6 +469,11 @@ export class PipelineRunner {
 
     const { stages, projectId } = this.state;
     const domain = this.options.domain || `${stages.input.output?.slug || "project"}.example.com`;
+    const buildShare = createPipelineShareInfo({
+      source: "build",
+      slug: stages.input.output?.slug,
+      demoBaseUrl: this.options.demoBaseUrl,
+    });
 
     switch (stage) {
       case "input":
@@ -442,11 +487,19 @@ export class PipelineRunner {
           pages: stages.input.output?.pages,
         } as ResearchStageInput;
 
+      case "keyword_discovery":
+        return {
+          projectId,
+          company: stages.input.output?.company,
+          research: stages.research.output,
+        } as KeywordDiscoveryStageInput;
+
       case "design":
         return {
           projectId,
           company: stages.input.output?.company,
           research: stages.research.output,
+          keywordDiscovery: stages.keyword_discovery.output,
         } as DesignStageInput;
 
       case "content":
@@ -471,6 +524,7 @@ export class PipelineRunner {
         return {
           projectId,
           slug: stages.input.output?.slug,
+          share: buildShare,
           config: {
             company: stages.input.output?.company,
             pages: stages.input.output?.pages,
@@ -509,6 +563,13 @@ export class PipelineRunner {
           slug: stages.input.output?.slug,
           outputPath: stages.build.output?.outputPath,
           previewUrl: stages.build.output?.previewUrl,
+          share:
+            stages.build.output?.share ||
+            createPipelineShareInfo({
+              source: "publish",
+              slug: stages.input.output?.slug,
+              demoBaseUrl: this.options.demoBaseUrl,
+            }),
           domain,
           platform: this.options.platform || "vercel",
         } as PublishStageInput;

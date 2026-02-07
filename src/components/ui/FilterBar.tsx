@@ -3,7 +3,7 @@
 import { Search } from 'lucide-react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useTransition } from 'react'
-import { Input } from '@/components/ui/Input'
+import { Input } from '@/components/ui/input'
 
 interface FilterOption {
     label: string

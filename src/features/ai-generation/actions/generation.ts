@@ -1,15 +1,15 @@
--/**
+/**
  * AI Website Generation Actions
  * Server actions for managing AI-powered website generation
  */
 
-    'use server';
+'use server'
 
-import { revalidatePath } from 'next/cache';
-import { auth } from '@/auth';
-import { prisma } from '@/server/db';
-import { logger, createSafeAction } from '@/shared/lib';
-import { z } from 'zod';
+import { revalidatePath } from 'next/cache'
+import { auth } from '@/auth'
+import { prisma } from '@/server/db'
+import { logger } from '@/shared/lib'
+import { z } from 'zod'
 import {
     validatePrompt,
     sanitizePrompt,
@@ -19,8 +19,8 @@ import {
     checkGenerationPermission,
     checkJobAccess,
     canCreateNewVersion,
-} from '../lib/validation';
-import { GenerationOrchestrator } from '../lib/orchestrator';
+} from '../lib/validation'
+import { GenerationOrchestrator } from '../lib/orchestrator'
 import type {
     CreateGenerationRequest,
     CreateGenerationResponse,
@@ -29,319 +29,396 @@ import type {
     GalleryQueryParams,
     CloneWebsiteRequest,
     RollbackRequest,
-} from '../types';
+} from '../types'
 
-// ==========================================
-// VALIDATION SCHEMAS
-// ==========================================
+type LegacyRow = Record<string, unknown>
+
+type LegacyJobRow = LegacyRow & {
+    id: string
+    userId?: string
+    status?: string
+}
+
+type LegacyWebsiteRow = LegacyRow & {
+    id: string
+    userId?: string
+    companyId?: string | null
+    jobId?: string
+    name?: string
+    slug?: string
+    version?: number
+}
+
+const LEGACY_AI_STORAGE_MESSAGE =
+    'AI generation depolama altyapısı henüz yapılandırılmadı. İlgili migrationları çalıştırın.'
+const AI_GENERATION_PATH = '/admin/ai-generation'
+
+const GALLERY_SORT_COLUMNS = {
+    createdAt: 'gw."createdAt"',
+    updatedAt: 'gw."updatedAt"',
+    name: 'gw."name"',
+} as const
 
 const createGenerationSchema = z.object({
     prompt: z.string().min(20).max(2000),
-    templateId: z.string().uuid().optional(),
-    companyId: z.string().uuid().optional(),
-    customSettings: z.record(z.string(), z.any()).optional(),
-});
+    templateId: z.string().min(1).optional(),
+    companyId: z.string().min(1).optional(),
+    customSettings: z.record(z.string(), z.unknown()).optional(),
+})
 
 const galleryQuerySchema = z.object({
-    page: z.number().min(1).default(1),
-    limit: z.number().min(1).max(50).default(20),
-    status: z.enum(['PENDING', 'ANALYZING', 'DESIGNING', 'GENERATING_CONTENT', 'GENERATING_CODE', 'BUILDING', 'COMPLETED', 'FAILED', 'CANCELLED']).optional(),
-    search: z.string().optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    status: z
+        .enum([
+            'PENDING',
+            'ANALYZING',
+            'DESIGNING',
+            'GENERATING_CONTENT',
+            'GENERATING_CODE',
+            'BUILDING',
+            'COMPLETED',
+            'FAILED',
+            'CANCELLED',
+        ])
+        .optional(),
+    search: z.string().trim().max(120).optional(),
     sortBy: z.enum(['createdAt', 'updatedAt', 'name']).default('createdAt'),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),
-});
+})
 
 const cloneWebsiteSchema = z.object({
-    websiteId: z.string().uuid(),
+    websiteId: z.string().min(1),
     newName: z.string().min(3).max(100),
     prompt: z.string().max(2000).optional(),
-});
+})
 
 const rollbackSchema = z.object({
-    websiteId: z.string().uuid(),
-    toVersion: z.number().min(1),
-});
+    websiteId: z.string().min(1),
+    toVersion: z.number().int().min(1),
+})
 
-// ==========================================
-// CREATE GENERATION JOB
-// ==========================================
+function isMissingRelationError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+    return (
+        (message.includes('relation') && message.includes('does not exist')) ||
+        (message.includes('table') && message.includes('does not exist')) ||
+        message.includes('no such table') ||
+        (message.includes('column') && message.includes('does not exist'))
+    )
+}
 
-/**
- * Creates a new AI website generation job
- */
-export async function createGeneration(
-    input: CreateGenerationRequest
-): Promise<CreateGenerationResponse> {
-    const requestId = crypto.randomUUID();
-    const session = await auth();
+function getErrorMessage(defaultMessage: string, error: unknown): string {
+    if (isMissingRelationError(error)) return LEGACY_AI_STORAGE_MESSAGE
+    return defaultMessage
+}
 
-    // Check authentication
+function estimateDuration(complexity: 'SIMPLE' | 'MODERATE' | 'COMPLEX'): number {
+    if (complexity === 'COMPLEX') return 600
+    if (complexity === 'MODERATE') return 400
+    return 300
+}
+
+async function queryLegacyRows<T extends LegacyRow = LegacyRow>(
+    sqlVariants: string[],
+    values: unknown[] = []
+): Promise<T[]> {
+    let lastError: unknown
+
+    for (const query of sqlVariants) {
+        try {
+            return await prisma.$queryRawUnsafe<T[]>(query, ...values)
+        } catch (error) {
+            lastError = error
+            if (!isMissingRelationError(error)) throw error
+        }
+    }
+
+    if (lastError) throw lastError
+    return []
+}
+
+async function logGenerationActivity(data: {
+    jobId?: string
+    websiteId?: string
+    userId: string
+    activityType: string
+    details?: Record<string, unknown>
+}): Promise<void> {
+    try {
+        await queryLegacyRows(
+            [
+                `INSERT INTO "GenerationActivity" ("id", "jobId", "websiteId", "userId", "activityType", "details", "createdAt")
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                 RETURNING "id"`,
+                `INSERT INTO GenerationActivity (id, jobId, websiteId, userId, activityType, details, createdAt)
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                 RETURNING id`,
+            ],
+            [
+                crypto.randomUUID(),
+                data.jobId || null,
+                data.websiteId || null,
+                data.userId,
+                data.activityType,
+                data.details ? JSON.stringify(data.details) : null,
+            ]
+        )
+    } catch (error) {
+        if (!isMissingRelationError(error)) {
+            logger.warn({ error, data }, 'Failed to insert generation activity')
+        }
+    }
+}
+
+export async function createGeneration(input: CreateGenerationRequest): Promise<CreateGenerationResponse> {
+    const requestId = crypto.randomUUID()
+    const session = await auth()
+
     if (!session?.user) {
         return {
             success: false,
             message: 'Authentication required',
             meta: { requestId },
-        };
+        }
     }
 
-    const userId = session.user.id;
-    const userRole = session.user.role;
+    const parsed = createGenerationSchema.safeParse(input)
+    if (!parsed.success) {
+        return {
+            success: false,
+            message: 'Invalid input: ' + parsed.error.issues.map((issue) => issue.message).join(', '),
+            meta: { requestId },
+        }
+    }
+
+    const userId = session.user.id
+    const userRole = session.user.role
+    const promptValidation = validatePrompt(parsed.data.prompt)
+
+    if (!promptValidation.valid) {
+        return {
+            success: false,
+            message: 'Prompt validation failed: ' + promptValidation.errors.join(', '),
+            meta: { requestId },
+        }
+    }
+
+    const permissionCheck = checkGenerationPermission(userRole)
+    if (!permissionCheck.allowed) {
+        return {
+            success: false,
+            message: permissionCheck.reason || 'Permission denied',
+            meta: { requestId },
+        }
+    }
+
+    const rateLimitCheck = await checkGenerationRateLimit(userId, userRole)
+    if (!rateLimitCheck.allowed) {
+        return {
+            success: false,
+            message: rateLimitCheck.reason || 'Rate limit exceeded',
+            meta: { requestId },
+        }
+    }
+
+    const sanitizedPrompt = sanitizePrompt(parsed.data.prompt)
+    const promptHash = hashPrompt(sanitizedPrompt)
+    const estimatedDuration = estimateDuration(promptValidation.estimatedComplexity)
 
     try {
-        // Validate input
-        const validation = createGenerationSchema.safeParse(input);
-        if (!validation.success) {
-            return {
-                success: false,
-                message: 'Invalid input: ' + validation.error.issues.map(e => e.message).join(', '),
-                meta: { requestId },
-            };
-        }
+        const existingJob = await queryLegacyRows<LegacyJobRow>(
+            [
+                `SELECT "id", "status"
+                 FROM "AIGenerationJob"
+                 WHERE "promptHash" = $1
+                   AND "userId" = $2
+                   AND "status" NOT IN ('FAILED', 'CANCELLED')
+                   AND "createdAt" > NOW() - INTERVAL '24 hours'
+                 LIMIT 1`,
+                `SELECT id, status
+                 FROM AIGenerationJob
+                 WHERE promptHash = $1
+                   AND userId = $2
+                   AND status NOT IN ('FAILED', 'CANCELLED')
+                   AND createdAt > NOW() - INTERVAL '24 hours'
+                 LIMIT 1`,
+            ],
+            [promptHash, userId]
+        )
 
-        // Check permissions
-        const permissionCheck = checkGenerationPermission(userRole);
-        if (!permissionCheck.allowed) {
-            return {
-                success: false,
-                message: permissionCheck.reason || 'Permission denied',
-                meta: { requestId },
-            };
-        }
-
-        // Validate prompt
-        const promptValidation = validatePrompt(input.prompt);
-        if (!promptValidation.valid) {
-            return {
-                success: false,
-                message: 'Prompt validation failed: ' + promptValidation.errors.join(', '),
-                meta: { requestId },
-            };
-        }
-
-        // Check rate limit
-        const rateLimitCheck = await checkGenerationRateLimit(userId, userRole);
-        if (!rateLimitCheck.allowed) {
-            return {
-                success: false,
-                message: rateLimitCheck.reason || 'Rate limit exceeded',
-                meta: { requestId },
-            };
-        }
-
-        // Sanitize and hash prompt
-        const sanitizedPrompt = sanitizePrompt(input.prompt);
-        const promptHash = hashPrompt(sanitizedPrompt);
-
-        // Check for duplicate generation
-        const existingJob = await prisma.$queryRaw`
-      SELECT id, status FROM AIGenerationJob 
-      WHERE promptHash = ${promptHash} 
-      AND userId = ${userId}
-      AND status NOT IN ('FAILED', 'CANCELLED')
-      AND createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-      LIMIT 1
-    `;
-
-        if (Array.isArray(existingJob) && existingJob.length > 0) {
+        if (existingJob.length > 0) {
             return {
                 success: false,
                 message: 'A similar generation is already in progress or was recently completed',
                 meta: { requestId },
-            };
+            }
         }
 
-        // Create generation job
-        const job = await prisma.$queryRaw`
-      INSERT INTO AIGenerationJob (
-        id, userId, companyId, prompt, promptHash, status, 
-        currentStep, progress, stepsCompleted, totalSteps,
-        estimatedDuration, isLatest, version, createdAt, updatedAt
-      ) VALUES (
-        ${crypto.randomUUID()}, ${userId}, ${input.companyId || null}, 
-        ${sanitizedPrompt}, ${promptHash}, 'PENDING',
-        NULL, 0, 0, 5,
-        ${promptValidation.estimatedComplexity === 'COMPLEX' ? 600 : promptValidation.estimatedComplexity === 'MODERATE' ? 400 : 300},
-        TRUE, 1, NOW(), NOW()
-      )
-    `;
+        const insertedJob = await queryLegacyRows<{ id: string }>(
+            [
+                `INSERT INTO "AIGenerationJob"
+                 ("id", "userId", "companyId", "prompt", "promptHash", "status",
+                  "currentStep", "progress", "stepsCompleted", "totalSteps",
+                  "estimatedDuration", "isLatest", "version", "createdAt", "updatedAt")
+                 VALUES
+                 ($1, $2, $3, $4, $5, 'PENDING',
+                  NULL, 0, 0, 5,
+                  $6, TRUE, 1, NOW(), NOW())
+                 RETURNING "id"`,
+                `INSERT INTO AIGenerationJob
+                 (id, userId, companyId, prompt, promptHash, status,
+                  currentStep, progress, stepsCompleted, totalSteps,
+                  estimatedDuration, isLatest, version, createdAt, updatedAt)
+                 VALUES
+                 ($1, $2, $3, $4, $5, 'PENDING',
+                  NULL, 0, 0, 5,
+                  $6, TRUE, 1, NOW(), NOW())
+                 RETURNING id`,
+            ],
+            [crypto.randomUUID(), userId, parsed.data.companyId || null, sanitizedPrompt, promptHash, estimatedDuration]
+        )
 
-        // Get the created job ID
-        const createdJob = await prisma.$queryRaw`
-      SELECT id FROM AIGenerationJob 
-      WHERE userId = ${userId} 
-      ORDER BY createdAt DESC 
-      LIMIT 1
-    `;
+        const jobId = insertedJob[0]?.id
+        if (!jobId) throw new Error('Failed to create generation job')
 
-        const jobId = Array.isArray(createdJob) && createdJob.length > 0
-            ? (createdJob[0] as any).id
-            : null;
+        await incrementGenerationRateLimit(userId)
 
-        if (!jobId) {
-            throw new Error('Failed to create generation job');
-        }
+        const orchestrator = new GenerationOrchestrator()
+        orchestrator
+            .startGeneration(jobId, {
+                prompt: sanitizedPrompt,
+                templateId: parsed.data.templateId,
+                customSettings: parsed.data.customSettings,
+            })
+            .catch((error) => {
+                logger.error({ error, jobId }, 'Generation orchestrator failed')
+            })
 
-        // Increment rate limit
-        await incrementGenerationRateLimit(userId);
-
-        // Start generation process asynchronously
-        const orchestrator = new GenerationOrchestrator();
-        orchestrator.startGeneration(jobId, {
-            prompt: sanitizedPrompt,
-            templateId: input.templateId,
-            customSettings: input.customSettings,
-        }).catch(error => {
-            logger.error({ error, jobId }, 'Generation orchestrator failed');
-        });
-
-        // Log activity
-        logger.info({
-            requestId,
-            jobId,
-            userId,
-            promptLength: sanitizedPrompt.length,
-            complexity: promptValidation.estimatedComplexity,
-        }, 'Generation job created');
+        logger.info(
+            {
+                requestId,
+                jobId,
+                userId,
+                promptLength: sanitizedPrompt.length,
+                complexity: promptValidation.estimatedComplexity,
+            },
+            'Generation job created'
+        )
 
         return {
             success: true,
             jobId,
             message: 'Generation started successfully',
-            estimatedDuration: promptValidation.estimatedComplexity === 'COMPLEX' ? 600 : promptValidation.estimatedComplexity === 'MODERATE' ? 400 : 300,
+            estimatedDuration,
             meta: { requestId },
-        };
-
+        }
     } catch (error) {
-        logger.error({ error, requestId, userId }, 'Failed to create generation job');
+        logger.error({ error, requestId, userId }, 'Failed to create generation job')
         return {
             success: false,
-            message: 'Failed to start generation. Please try again.',
+            message: getErrorMessage('Failed to start generation. Please try again.', error),
             meta: { requestId },
-        };
+        }
     }
 }
 
-// ==========================================
-// GET GENERATION STATUS
-// ==========================================
-
-/**
- * Gets the status of a generation job
- */
-export async function getGenerationStatus(
-    jobId: string
-): Promise<GenerationStatusResponse> {
-    const requestId = crypto.randomUUID();
-    const session = await auth();
+export async function getGenerationStatus(jobId: string): Promise<GenerationStatusResponse> {
+    const requestId = crypto.randomUUID()
+    const session = await auth()
 
     if (!session?.user) {
         return {
             success: false,
             message: 'Authentication required',
             meta: { requestId },
-        };
+        }
     }
 
     try {
-        // Check access permissions
-        const accessCheck = await checkJobAccess(
-            session.user.id,
-            session.user.role,
-            jobId
-        );
-
+        const accessCheck = await checkJobAccess(session.user.id, session.user.role, jobId)
         if (!accessCheck.allowed) {
             return {
                 success: false,
                 message: accessCheck.reason || 'Access denied',
                 meta: { requestId },
-            };
+            }
         }
 
-        // Get job details
-        const job = await prisma.$queryRaw`
-      SELECT * FROM AIGenerationJob WHERE id = ${jobId} LIMIT 1
-    `;
+        const jobs = await queryLegacyRows<LegacyJobRow>(
+            [
+                `SELECT * FROM "AIGenerationJob" WHERE "id" = $1 LIMIT 1`,
+                `SELECT * FROM AIGenerationJob WHERE id = $1 LIMIT 1`,
+            ],
+            [jobId]
+        )
 
-        if (!Array.isArray(job) || job.length === 0) {
+        if (jobs.length === 0) {
             return {
                 success: false,
                 message: 'Generation job not found',
                 meta: { requestId },
-            };
+            }
         }
 
         return {
             success: true,
-            job: job[0] as any,
+            job: jobs[0] as any,
             meta: { requestId },
-        };
-
+        }
     } catch (error) {
-        logger.error({ error, requestId, jobId }, 'Failed to get generation status');
+        logger.error({ error, requestId, jobId }, 'Failed to get generation status')
         return {
             success: false,
-            message: 'Failed to retrieve generation status',
+            message: getErrorMessage('Failed to retrieve generation status', error),
             meta: { requestId },
-        };
+        }
     }
 }
 
-// ==========================================
-// CANCEL GENERATION
-// ==========================================
-
-/**
- * Cancels an in-progress generation job
- */
-export async function cancelGeneration(
-    jobId: string
-): Promise<{ success: boolean; message: string }> {
-    const session = await auth();
-
+export async function cancelGeneration(jobId: string): Promise<{ success: boolean; message: string }> {
+    const session = await auth()
     if (!session?.user) {
-        return { success: false, message: 'Authentication required' };
+        return { success: false, message: 'Authentication required' }
     }
 
     try {
-        const accessCheck = await checkJobAccess(
-            session.user.id,
-            session.user.role,
-            jobId
-        );
-
+        const accessCheck = await checkJobAccess(session.user.id, session.user.role, jobId)
         if (!accessCheck.allowed) {
-            return { success: false, message: accessCheck.reason || 'Access denied' };
+            return { success: false, message: accessCheck.reason || 'Access denied' }
         }
 
-        await prisma.$queryRaw`
-      UPDATE AIGenerationJob 
-      SET status = 'CANCELLED', updatedAt = NOW() 
-      WHERE id = ${jobId} 
-      AND status IN ('PENDING', 'ANALYZING', 'DESIGNING', 'GENERATING_CONTENT', 'GENERATING_CODE', 'BUILDING')
-    `;
+        const cancelled = await queryLegacyRows<{ id: string }>(
+            [
+                `UPDATE "AIGenerationJob"
+                 SET "status" = 'CANCELLED', "updatedAt" = NOW()
+                 WHERE "id" = $1
+                   AND "status" IN ('PENDING', 'ANALYZING', 'DESIGNING', 'GENERATING_CONTENT', 'GENERATING_CODE', 'BUILDING')
+                 RETURNING "id"`,
+                `UPDATE AIGenerationJob
+                 SET status = 'CANCELLED', updatedAt = NOW()
+                 WHERE id = $1
+                   AND status IN ('PENDING', 'ANALYZING', 'DESIGNING', 'GENERATING_CONTENT', 'GENERATING_CODE', 'BUILDING')
+                 RETURNING id`,
+            ],
+            [jobId]
+        )
 
-        logger.info({ jobId, userId: session.user.id }, 'Generation job cancelled');
+        if (cancelled.length === 0) {
+            return { success: false, message: 'Generation is not cancelable in current state' }
+        }
 
-        return { success: true, message: 'Generation cancelled successfully' };
+        logger.info({ jobId, userId: session.user.id }, 'Generation job cancelled')
+        return { success: true, message: 'Generation cancelled successfully' }
     } catch (error) {
-        logger.error({ error, jobId }, 'Failed to cancel generation');
-        return { success: false, message: 'Failed to cancel generation' };
+        logger.error({ error, jobId }, 'Failed to cancel generation')
+        return { success: false, message: getErrorMessage('Failed to cancel generation', error) }
     }
 }
 
-// ==========================================
-// GALLERY / LIST GENERATED WEBSITES
-// ==========================================
-
-/**
- * Lists generated websites for the gallery view
- */
-export async function getGeneratedWebsites(
-    params: GalleryQueryParams = {}
-): Promise<GalleryResponse> {
-    const requestId = crypto.randomUUID();
-    const session = await auth();
+export async function getGeneratedWebsites(params: GalleryQueryParams = {}): Promise<GalleryResponse> {
+    const requestId = crypto.randomUUID()
+    const session = await auth()
 
     if (!session?.user) {
         return {
@@ -349,55 +426,82 @@ export async function getGeneratedWebsites(
             websites: [],
             pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
             meta: { requestId },
-        };
+        }
     }
 
+    const parsedParams = galleryQuerySchema.safeParse(params)
+    if (!parsedParams.success) {
+        return {
+            success: false,
+            websites: [],
+            pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+            meta: { requestId },
+        }
+    }
+
+    const { page, limit, status, search, sortBy, sortOrder } = parsedParams.data
+    const skip = (page - 1) * limit
+    const conditions: string[] = []
+    const values: unknown[] = []
+
+    if (session.user.role !== 'ADMIN') {
+        values.push(session.user.id)
+        conditions.push(`gw."userId" = $${values.length}`)
+    }
+
+    if (status) {
+        values.push(status)
+        conditions.push(`aj."status" = $${values.length}`)
+    }
+
+    if (search) {
+        values.push(`%${search}%`)
+        const searchPlaceholder = `$${values.length}`
+        conditions.push(`(gw."name" ILIKE ${searchPlaceholder} OR COALESCE(gw."description", '') ILIKE ${searchPlaceholder})`)
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const sortColumn = GALLERY_SORT_COLUMNS[sortBy]
+    const sortDirection = sortOrder === 'asc' ? 'ASC' : 'DESC'
+
     try {
-        const { page = 1, limit = 20, status, search, sortBy = 'createdAt', sortOrder = 'desc' } = params;
-        const skip = (page - 1) * limit;
+        const countRows = await queryLegacyRows<{ total: number | string }>(
+            [
+                `SELECT COUNT(*)::int AS "total"
+                 FROM "GeneratedWebsite" gw
+                 LEFT JOIN "AIGenerationJob" aj ON gw."jobId" = aj."id"
+                 ${whereClause}`,
+                `SELECT COUNT(*)::int AS total
+                 FROM GeneratedWebsite gw
+                 LEFT JOIN AIGenerationJob aj ON gw.jobId = aj.id
+                 ${whereClause}`,
+            ],
+            values
+        )
 
-        // Build query conditions
-        let whereClause = `WHERE gw.userId = '${session.user.id}'`;
+        const listRows = await queryLegacyRows<LegacyWebsiteRow>(
+            [
+                `SELECT gw.*, aj."status" AS "jobStatus", aj."progress" AS "jobProgress"
+                 FROM "GeneratedWebsite" gw
+                 LEFT JOIN "AIGenerationJob" aj ON gw."jobId" = aj."id"
+                 ${whereClause}
+                 ORDER BY ${sortColumn} ${sortDirection}
+                 LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+                `SELECT gw.*, aj.status AS jobStatus, aj.progress AS jobProgress
+                 FROM GeneratedWebsite gw
+                 LEFT JOIN AIGenerationJob aj ON gw.jobId = aj.id
+                 ${whereClause}
+                 ORDER BY ${sortColumn} ${sortDirection}
+                 LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+            ],
+            [...values, limit, skip]
+        )
 
-        if (session.user.role === 'ADMIN') {
-            whereClause = ''; // Admins can see all
-        }
-
-        if (status) {
-            whereClause += whereClause ? ` AND aj.status = '${status}'` : `WHERE aj.status = '${status}'`;
-        }
-
-        if (search) {
-            whereClause += whereClause
-                ? ` AND (gw.name LIKE '%${search}%' OR gw.description LIKE '%${search}%')`
-                : `WHERE (gw.name LIKE '%${search}%' OR gw.description LIKE '%${search}%')`;
-        }
-
-        // Get total count
-        const countResult = await prisma.$queryRaw`
-      SELECT COUNT(*) as total 
-      FROM GeneratedWebsite gw
-      LEFT JOIN AIGenerationJob aj ON gw.jobId = aj.id
-      ${whereClause ? prisma.$queryRawUnsafe(whereClause) : ''}
-    `;
-
-        const total = Array.isArray(countResult) && countResult.length > 0
-            ? Number((countResult[0] as any).total)
-            : 0;
-
-        // Get websites
-        const websites = await prisma.$queryRaw`
-      SELECT gw.*, aj.status as jobStatus, aj.progress as jobProgress
-      FROM GeneratedWebsite gw
-      LEFT JOIN AIGenerationJob aj ON gw.jobId = aj.id
-      ${whereClause ? prisma.$queryRawUnsafe(whereClause) : ''}
-      ORDER BY gw.${sortBy} ${sortOrder === 'desc' ? 'DESC' : 'ASC'}
-      LIMIT ${limit} OFFSET ${skip}
-    `;
+        const total = Number(countRows[0]?.total ?? 0)
 
         return {
             success: true,
-            websites: Array.isArray(websites) ? websites as any[] : [],
+            websites: listRows as any[],
             pagination: {
                 page,
                 limit,
@@ -405,290 +509,301 @@ export async function getGeneratedWebsites(
                 totalPages: Math.ceil(total / limit),
             },
             meta: { requestId },
-        };
-
+        }
     } catch (error) {
-        logger.error({ error, requestId }, 'Failed to get generated websites');
+        logger.error({ error, requestId }, 'Failed to get generated websites')
         return {
             success: false,
             websites: [],
-            pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+            pagination: { page, limit, total: 0, totalPages: 0 },
             meta: { requestId },
-        };
+        }
     }
 }
 
-// ==========================================
-// CLONE WEBSITE
-// ==========================================
-
-/**
- * Clones an existing generated website
- */
 export async function cloneWebsite(
     input: CloneWebsiteRequest
 ): Promise<{ success: boolean; message: string; jobId?: string }> {
-    const session = await auth();
-
+    const session = await auth()
     if (!session?.user) {
-        return { success: false, message: 'Authentication required' };
+        return { success: false, message: 'Authentication required' }
+    }
+
+    const validation = cloneWebsiteSchema.safeParse(input)
+    if (!validation.success) {
+        return {
+            success: false,
+            message: 'Invalid input: ' + validation.error.issues.map((issue) => issue.message).join(', '),
+        }
     }
 
     try {
-        const validation = cloneWebsiteSchema.safeParse(input);
-        if (!validation.success) {
-            return {
-                success: false,
-                message: 'Invalid input: ' + validation.error.issues.map(e => e.message).join(', '),
-            };
+        const websites = await queryLegacyRows<LegacyWebsiteRow>(
+            [
+                `SELECT * FROM "GeneratedWebsite" WHERE "id" = $1 LIMIT 1`,
+                `SELECT * FROM GeneratedWebsite WHERE id = $1 LIMIT 1`,
+            ],
+            [validation.data.websiteId]
+        )
+
+        if (websites.length === 0) {
+            return { success: false, message: 'Website not found' }
         }
 
-        // Get original website
-        const original = await prisma.$queryRaw`
-      SELECT * FROM GeneratedWebsite WHERE id = ${input.websiteId} LIMIT 1
-    `;
+        const originalWebsite = websites[0]
+        const ownerUserId = String(originalWebsite.userId || '')
 
-        if (!Array.isArray(original) || original.length === 0) {
-            return { success: false, message: 'Website not found' };
+        if (session.user.role !== 'ADMIN' && ownerUserId !== session.user.id) {
+            return { success: false, message: 'Permission denied' }
         }
 
-        const originalWebsite = original[0] as any;
-
-        // Check permissions
-        if (originalWebsite.userId !== session.user.id && session.user.role !== 'ADMIN') {
-            return { success: false, message: 'Permission denied' };
+        const versionCheck = await canCreateNewVersion(validation.data.websiteId)
+        if (!versionCheck.allowed) {
+            return { success: false, message: versionCheck.reason || 'Version limit reached' }
         }
 
-        // Check rate limit
-        const rateLimitCheck = await checkGenerationRateLimit(session.user.id, session.user.role);
+        const rateLimitCheck = await checkGenerationRateLimit(session.user.id, session.user.role)
         if (!rateLimitCheck.allowed) {
-            return { success: false, message: rateLimitCheck.reason || 'Rate limit exceeded' };
+            return { success: false, message: rateLimitCheck.reason || 'Rate limit exceeded' }
         }
 
-        // Create new prompt based on original
-        const clonePrompt = input.prompt ||
-            `Clone of ${originalWebsite.name} with similar design and structure`;
+        const clonePrompt =
+            validation.data.prompt ||
+            `Clone of ${String(originalWebsite.name || 'website')} with similar design and structure`
 
-        // Create new generation job
         const result = await createGeneration({
             prompt: clonePrompt,
-            companyId: originalWebsite.companyId,
-        });
+            companyId:
+                typeof originalWebsite.companyId === 'string' && originalWebsite.companyId.length > 0
+                    ? originalWebsite.companyId
+                    : undefined,
+        })
 
         if (result.success && result.jobId) {
-            // Mark as clone in activity log
-            await prisma.$queryRaw`
-        INSERT INTO GenerationActivity (id, jobId, websiteId, userId, activityType, details, createdAt)
-        VALUES (
-          ${crypto.randomUUID()}, 
-          ${result.jobId}, 
-          ${input.websiteId}, 
-          ${session.user.id}, 
-          'CLONED',
-          ${JSON.stringify({ originalName: originalWebsite.name, newName: input.newName })},
-          NOW()
-        )
-      `;
+            await logGenerationActivity({
+                jobId: result.jobId,
+                websiteId: validation.data.websiteId,
+                userId: session.user.id,
+                activityType: 'CLONED',
+                details: {
+                    originalName: originalWebsite.name,
+                    newName: validation.data.newName,
+                },
+            })
 
             return {
                 success: true,
                 message: 'Website clone started successfully',
                 jobId: result.jobId,
-            };
+            }
         }
 
-        return { success: false, message: result.message };
-
+        return { success: false, message: result.message }
     } catch (error) {
-        logger.error({ error, input }, 'Failed to clone website');
-        return { success: false, message: 'Failed to clone website' };
+        logger.error({ error, input }, 'Failed to clone website')
+        return { success: false, message: getErrorMessage('Failed to clone website', error) }
     }
 }
 
-// ==========================================
-// ROLLBACK WEBSITE
-// ==========================================
-
-/**
- * Rolls back a website to a previous version
- */
-export async function rollbackWebsite(
-    input: RollbackRequest
-): Promise<{ success: boolean; message: string }> {
-    const session = await auth();
-
+export async function rollbackWebsite(input: RollbackRequest): Promise<{ success: boolean; message: string }> {
+    const session = await auth()
     if (!session?.user) {
-        return { success: false, message: 'Authentication required' };
+        return { success: false, message: 'Authentication required' }
+    }
+
+    const validation = rollbackSchema.safeParse(input)
+    if (!validation.success) {
+        return {
+            success: false,
+            message: 'Invalid input: ' + validation.error.issues.map((issue) => issue.message).join(', '),
+        }
     }
 
     try {
-        const validation = rollbackSchema.safeParse(input);
-        if (!validation.success) {
+        const currentRows = await queryLegacyRows<LegacyWebsiteRow>(
+            [
+                `SELECT * FROM "GeneratedWebsite" WHERE "id" = $1 LIMIT 1`,
+                `SELECT * FROM GeneratedWebsite WHERE id = $1 LIMIT 1`,
+            ],
+            [validation.data.websiteId]
+        )
+
+        if (currentRows.length === 0) {
+            return { success: false, message: 'Website not found' }
+        }
+
+        const currentWebsite = currentRows[0]
+        const ownerUserId = String(currentWebsite.userId || '')
+        if (session.user.role !== 'ADMIN' && ownerUserId !== session.user.id) {
+            return { success: false, message: 'Permission denied' }
+        }
+
+        const targetRows = await queryLegacyRows<LegacyWebsiteRow>(
+            [
+                `SELECT * FROM "GeneratedWebsite"
+                 WHERE "slug" = $1
+                   AND "version" = $2
+                   AND "canRollback" = TRUE
+                 LIMIT 1`,
+                `SELECT * FROM GeneratedWebsite
+                 WHERE slug = $1
+                   AND version = $2
+                   AND canRollback = TRUE
+                 LIMIT 1`,
+            ],
+            [currentWebsite.slug, validation.data.toVersion]
+        )
+
+        if (targetRows.length === 0) {
             return {
                 success: false,
-                message: 'Invalid input: ' + validation.error.issues.map(e => e.message).join(', '),
-            };
+                message: `Version ${validation.data.toVersion} not found or cannot be rolled back to`,
+            }
         }
 
-        // Get current website
-        const current = await prisma.$queryRaw`
-      SELECT * FROM GeneratedWebsite WHERE id = ${input.websiteId} LIMIT 1
-    `;
+        const targetVersion = targetRows[0]
 
-        if (!Array.isArray(current) || current.length === 0) {
-            return { success: false, message: 'Website not found' };
-        }
+        await queryLegacyRows(
+            [
+                `UPDATE "GeneratedWebsite"
+                 SET "isActive" = FALSE, "updatedAt" = NOW()
+                 WHERE "id" = $1
+                 RETURNING "id"`,
+                `UPDATE GeneratedWebsite
+                 SET isActive = FALSE, updatedAt = NOW()
+                 WHERE id = $1
+                 RETURNING id`,
+            ],
+            [validation.data.websiteId]
+        )
 
-        const currentWebsite = current[0] as any;
+        await queryLegacyRows(
+            [
+                `UPDATE "GeneratedWebsite"
+                 SET "isActive" = TRUE, "updatedAt" = NOW()
+                 WHERE "id" = $1
+                 RETURNING "id"`,
+                `UPDATE GeneratedWebsite
+                 SET isActive = TRUE, updatedAt = NOW()
+                 WHERE id = $1
+                 RETURNING id`,
+            ],
+            [targetVersion.id]
+        )
 
-        // Check permissions
-        if (currentWebsite.userId !== session.user.id && session.user.role !== 'ADMIN') {
-            return { success: false, message: 'Permission denied' };
-        }
+        await logGenerationActivity({
+            jobId: typeof targetVersion.jobId === 'string' ? targetVersion.jobId : undefined,
+            websiteId: validation.data.websiteId,
+            userId: session.user.id,
+            activityType: 'ROLLED_BACK',
+            details: {
+                fromVersion: currentWebsite.version,
+                toVersion: validation.data.toVersion,
+            },
+        })
 
-        // Get target version
-        const target = await prisma.$queryRaw`
-      SELECT * FROM GeneratedWebsite 
-      WHERE slug = ${currentWebsite.slug} 
-      AND version = ${input.toVersion}
-      AND canRollback = TRUE
-      LIMIT 1
-    `;
-
-        if (!Array.isArray(target) || target.length === 0) {
-            return { success: false, message: `Version ${input.toVersion} not found or cannot be rolled back to` };
-        }
-
-        const targetVersion = target[0] as any;
-
-        // Deactivate current version
-        await prisma.$queryRaw`
-      UPDATE GeneratedWebsite 
-      SET isActive = FALSE, updatedAt = NOW() 
-      WHERE id = ${input.websiteId}
-    `;
-
-        // Activate target version
-        await prisma.$queryRaw`
-      UPDATE GeneratedWebsite 
-      SET isActive = TRUE, updatedAt = NOW() 
-      WHERE id = ${targetVersion.id}
-    `;
-
-        // Log activity
-        await prisma.$queryRaw`
-      INSERT INTO GenerationActivity (id, jobId, websiteId, userId, activityType, details, createdAt)
-      VALUES (
-        ${crypto.randomUUID()}, 
-        ${targetVersion.jobId}, 
-        ${input.websiteId}, 
-        ${session.user.id}, 
-        'ROLLED_BACK',
-        ${JSON.stringify({ fromVersion: currentWebsite.version, toVersion: input.toVersion })},
-        NOW()
-      )
-    `;
-
-        revalidatePath('/admin/ai-generation');
+        revalidatePath(AI_GENERATION_PATH)
 
         return {
             success: true,
-            message: `Successfully rolled back to version ${input.toVersion}`,
-        };
-
+            message: `Successfully rolled back to version ${validation.data.toVersion}`,
+        }
     } catch (error) {
-        logger.error({ error, input }, 'Failed to rollback website');
-        return { success: false, message: 'Failed to rollback website' };
+        logger.error({ error, input }, 'Failed to rollback website')
+        return { success: false, message: getErrorMessage('Failed to rollback website', error) }
     }
 }
 
-// ==========================================
-// DELETE WEBSITE
-// ==========================================
-
-/**
- * Deletes a generated website
- */
-export async function deleteWebsite(
-    websiteId: string
-): Promise<{ success: boolean; message: string }> {
-    const session = await auth();
-
+export async function deleteWebsite(websiteId: string): Promise<{ success: boolean; message: string }> {
+    const session = await auth()
     if (!session?.user) {
-        return { success: false, message: 'Authentication required' };
+        return { success: false, message: 'Authentication required' }
     }
 
     try {
-        const website = await prisma.$queryRaw`
-      SELECT * FROM GeneratedWebsite WHERE id = ${websiteId} LIMIT 1
-    `;
+        const websites = await queryLegacyRows<LegacyWebsiteRow>(
+            [
+                `SELECT * FROM "GeneratedWebsite" WHERE "id" = $1 LIMIT 1`,
+                `SELECT * FROM GeneratedWebsite WHERE id = $1 LIMIT 1`,
+            ],
+            [websiteId]
+        )
 
-        if (!Array.isArray(website) || website.length === 0) {
-            return { success: false, message: 'Website not found' };
+        if (websites.length === 0) {
+            return { success: false, message: 'Website not found' }
         }
 
-        const websiteData = website[0] as any;
-
-        if (websiteData.userId !== session.user.id && session.user.role !== 'ADMIN') {
-            return { success: false, message: 'Permission denied' };
+        const website = websites[0]
+        const ownerUserId = String(website.userId || '')
+        if (session.user.role !== 'ADMIN' && ownerUserId !== session.user.id) {
+            return { success: false, message: 'Permission denied' }
         }
 
-        // Soft delete - mark as deleted
-        await prisma.$queryRaw`
-      UPDATE GeneratedWebsite 
-      SET isActive = FALSE, updatedAt = NOW() 
-      WHERE id = ${websiteId}
-    `;
+        await queryLegacyRows(
+            [
+                `UPDATE "GeneratedWebsite"
+                 SET "isActive" = FALSE, "updatedAt" = NOW()
+                 WHERE "id" = $1
+                 RETURNING "id"`,
+                `UPDATE GeneratedWebsite
+                 SET isActive = FALSE, updatedAt = NOW()
+                 WHERE id = $1
+                 RETURNING id`,
+            ],
+            [websiteId]
+        )
 
-        // Log activity
-        await prisma.$queryRaw`
-      INSERT INTO GenerationActivity (id, websiteId, userId, activityType, createdAt)
-      VALUES (${crypto.randomUUID()}, ${websiteId}, ${session.user.id}, 'DELETED', NOW())
-    `;
+        await logGenerationActivity({
+            websiteId,
+            userId: session.user.id,
+            activityType: 'DELETED',
+        })
 
-        revalidatePath('/admin/ai-generation');
-
-        return { success: true, message: 'Website deleted successfully' };
-
+        revalidatePath(AI_GENERATION_PATH)
+        return { success: true, message: 'Website deleted successfully' }
     } catch (error) {
-        logger.error({ error, websiteId }, 'Failed to delete website');
-        return { success: false, message: 'Failed to delete website' };
+        logger.error({ error, websiteId }, 'Failed to delete website')
+        return { success: false, message: getErrorMessage('Failed to delete website', error) }
     }
 }
 
-// ==========================================
-// GET TEMPLATES
-// ==========================================
-
-/**
- * Gets available generation templates
- */
 export async function getGenerationTemplates(): Promise<{
-    success: boolean;
-    templates: any[];
-    message?: string;
+    success: boolean
+    templates: any[]
+    message?: string
 }> {
-    const session = await auth();
-
+    const session = await auth()
     if (!session?.user) {
-        return { success: false, templates: [], message: 'Authentication required' };
+        return { success: false, templates: [], message: 'Authentication required' }
     }
 
     try {
-        const templates = await prisma.$queryRaw`
-      SELECT * FROM GenerationTemplate 
-      WHERE isActive = TRUE 
-      AND (isPublic = TRUE OR createdBy = ${session.user.id})
-      ORDER BY usageCount DESC, name ASC
-    `;
+        const templates = await queryLegacyRows(
+            [
+                `SELECT *
+                 FROM "GenerationTemplate"
+                 WHERE "isActive" = TRUE
+                   AND ("isPublic" = TRUE OR "createdBy" = $1)
+                 ORDER BY "usageCount" DESC, "name" ASC`,
+                `SELECT *
+                 FROM GenerationTemplate
+                 WHERE isActive = TRUE
+                   AND (isPublic = TRUE OR createdBy = $1)
+                 ORDER BY usageCount DESC, name ASC`,
+            ],
+            [session.user.id]
+        )
 
         return {
             success: true,
             templates: Array.isArray(templates) ? templates : [],
-        };
-
+        }
     } catch (error) {
-        logger.error({ error }, 'Failed to get generation templates');
-        return { success: false, templates: [], message: 'Failed to load templates' };
+        logger.error({ error }, 'Failed to get generation templates')
+        return {
+            success: false,
+            templates: [],
+            message: getErrorMessage('Failed to load templates', error),
+        }
     }
 }

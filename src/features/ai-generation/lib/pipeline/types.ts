@@ -12,6 +12,7 @@
 export const PIPELINE_STAGES = [
   "input",
   "research",
+  "keyword_discovery", // NEW: Anahtar kelime kesfi ve 2026 trend analizi
   "design",
   "images",    // NEW: Gemini Imagen ile görsel üretimi
   "content",
@@ -106,11 +107,50 @@ export interface ResearchStageOutput {
 }
 
 export interface ResearchStageExpectation {
-  nextStage: "design";
+  nextStage: "keyword_discovery";
   expectedOutputs: {
     suggestedColors: string[];
     suggestedFonts: string[];
-    designDirection: string;
+    estimatedDuration: string;
+  };
+}
+
+// ============================================
+// STAGE 2.5: KEYWORD DISCOVERY (NEW)
+// ============================================
+
+export interface KeywordDiscoveryStageInput {
+  projectId: string;
+  company: InputStageOutput["company"];
+  research: ResearchStageOutput;
+}
+
+export interface KeywordDiscoveryStageOutput {
+  projectId: string;
+  discoveredKeywords: {
+    keyword: string;
+    volume: "high" | "medium" | "low";
+    difficulty: number; // 0-100
+    intent: "informational" | "commercial" | "transactional";
+    isTrending2026: boolean;
+  }[];
+  suggestedContentClusters: {
+    topic: string;
+    description: string;
+    targetKeywords: string[];
+  }[];
+  complianceAlerts?: {
+    type: "legal" | "technical" | "financial";
+    message: string;
+    impact: string;
+  }[];
+}
+
+export interface KeywordDiscoveryStageExpectation {
+  nextStage: "design";
+  expectedOutputs: {
+    seoOptimizedStructure: boolean;
+    suggestedModules: string[];
   };
 }
 
@@ -333,6 +373,7 @@ export interface SeoStageExpectation {
 export interface BuildStageInput {
   projectId: string;
   slug: string;
+  share?: PipelineShareInfo;
   config: {
     company: InputStageOutput["company"];
     pages: InputStageOutput["pages"];
@@ -356,6 +397,7 @@ export interface BuildStageOutput {
   projectId: string;
   outputPath?: string;
   previewUrl?: string;
+  share?: PipelineShareInfo;
   codeRepository?: string;
   buildStats?: {
     duration: number;
@@ -514,6 +556,7 @@ export interface PublishStageInput {
   slug: string;
   outputPath?: string;
   previewUrl?: string;
+  share?: PipelineShareInfo;
   domain: string;
   platform: "vercel" | "netlify" | "cloudflare" | "custom";
 }
@@ -522,6 +565,7 @@ export interface PublishStageOutput {
   projectId: string;
   deploymentId: string;
   url: string;
+  share?: PipelineShareInfo;
   customDomain?: string;
   ssl: boolean;
   cdn: boolean;
@@ -544,6 +588,15 @@ export interface PublishStageExpectation {
     monitoringSetup: boolean;
     analyticsSetup: boolean;
   };
+}
+
+export interface PipelineShareInfo {
+  baseHost: string;
+  slug: string;
+  path: string;
+  url: string;
+  ready: boolean;
+  source: "build" | "publish";
 }
 
 // ============================================
@@ -573,6 +626,7 @@ export interface PipelineState {
   stages: {
     input: StageResult<InputStageOutput, InputStageExpectation>;
     research: StageResult<ResearchStageOutput, ResearchStageExpectation>;
+    keyword_discovery: StageResult<KeywordDiscoveryStageOutput, KeywordDiscoveryStageExpectation>;
     design: StageResult<DesignStageOutput, DesignStageExpectation>;
     images: StageResult<ImagesStageOutput, ImagesStageExpectation>;
     content: StageResult<ContentStageOutput, ContentStageExpectation>;
@@ -650,6 +704,22 @@ export const STAGE_METADATA: Record<PipelineStage, StageMetadata> = {
     aiProviderFallback: "chatgpt",
     aiProviderDescription: "Gemini ile sektor ve rakip analizi",
   },
+  keyword_discovery: {
+    id: "keyword_discovery",
+    name: "Anahtar Kelime Kesfi",
+    description: "2026 trendleri ve stratejik anahtar kelime analizi",
+    icon: "Target",
+    color: "#F59E0B", // Amber
+    estimatedDuration: "1-2 dakika",
+    requiredInputs: ["projectId", "company", "research"],
+    producedOutputs: ["discoveredKeywords", "suggestedContentClusters"],
+    canSkip: true,
+    canRetry: true,
+    isInteractive: false,
+    aiProvider: "gemini",
+    aiProviderFallback: "chatgpt",
+    aiProviderDescription: "Gemini ile 2026 trend analizi ve keyword kesfi",
+  },
   design: {
     id: "design",
     name: "Tasarim",
@@ -721,7 +791,7 @@ export const STAGE_METADATA: Record<PipelineStage, StageMetadata> = {
     color: "#EF4444", // Red
     estimatedDuration: "2-4 dakika",
     requiredInputs: ["config", "content", "seoFiles"],
-    producedOutputs: ["outputPath", "buildStats", "pages", "assets"],
+    producedOutputs: ["outputPath", "buildStats", "pages", "assets", "share"],
     canSkip: false,
     canRetry: true,
     isInteractive: true, // Vibe mode: manual code/iteration
@@ -769,7 +839,7 @@ export const STAGE_METADATA: Record<PipelineStage, StageMetadata> = {
     color: "#0EA5E9", // Sky
     estimatedDuration: "1-2 dakika",
     requiredInputs: ["outputPath", "domain", "platform"],
-    producedOutputs: ["deploymentId", "url", "ssl"],
+    producedOutputs: ["deploymentId", "url", "ssl", "share"],
     canSkip: false,
     canRetry: true,
     isInteractive: false,

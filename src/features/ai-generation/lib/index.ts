@@ -6,4 +6,4 @@
 export { GenerationOrchestrator, createOrchestrator } from './orchestrator';
 export { getOpenAIConnector, OpenAIConnector } from './ai/openai-connector';
 export { PROMPT_TEMPLATES, getContentPrompt, buildPrompt } from './prompts';
-export { PipelineRunner, createPipelineRunner, runPipeline } from './pipeline/runner';
+export { PipelineRunner, createPipelineRunner } from './pipeline/runner';
