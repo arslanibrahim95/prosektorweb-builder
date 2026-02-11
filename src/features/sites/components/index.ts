@@ -1,6 +1,8 @@
 // Layout components
 export { SiteHeader } from './layout/SiteHeader';
 export { SiteFooter } from './layout/SiteFooter';
+export { ThemedSiteHeader } from './layout/ThemedSiteHeader';
+export { ThemedSiteFooter } from './layout/ThemedSiteFooter';
 
 // Section components
 export { HeroSection } from './sections/HeroSection';

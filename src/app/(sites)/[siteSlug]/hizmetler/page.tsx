@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getSiteData } from '@/features/sites/lib/site-data';
+import { BlockRenderer } from '@/features/sites/components/BlockRenderer';
 import { CTASection } from '@/features/sites/components/sections/CTASection';
 import {
   Shield,
@@ -121,8 +122,25 @@ export default async function HizmetlerPage({ params }: HizmetlerPageProps) {
     notFound();
   }
 
-  const { project, settings, contents, services } = siteData;
+  const { project, settings, contents, services, pages } = siteData;
   const servicesContent = contents['SERVICES'];
+  const servicesPageData = pages.find((p) => p.slug === '/hizmetler');
+
+  if (servicesPageData && servicesPageData.blocks.length > 0) {
+    return (
+      <>
+        {servicesPageData.blocks.map((block, index) => (
+          <BlockRenderer
+            key={`${block.blockType}-${index}`}
+            block={block}
+            slug={project.slug}
+            siteData={siteData}
+            themeId={siteData.design.theme}
+          />
+        ))}
+      </>
+    );
+  }
 
   // Use dynamic services from Payload if available
   const hasDynamicServices = services.length > 0;

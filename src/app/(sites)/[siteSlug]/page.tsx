@@ -35,6 +35,7 @@ export default async function HomePage({ params }: HomePageProps) {
             block={block}
             slug={project.slug}
             siteData={siteData}
+            themeId={siteData.design.theme}
           />
         ))}
       </>

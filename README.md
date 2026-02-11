@@ -1,68 +1,110 @@
-# ProSektor Builder - AI Website Generator
+# OSGB Site Engine
 
-Bağımsız web sitesi oluşturma platformu.
+Bu repo artık panel/editör uygulaması değildir.  
+Amaç: dış panelde düzenlenen OSGB içeriklerini canlıda render etmek ve publish webhook ile cache yenilemektir.
 
-## Kurulum
+## Aktif Mimari
+
+- Public site route: `src/app/(sites)/[siteSlug]/*`
+- Site veri katmanı: `src/features/sites/lib/site-data.ts` (Panel API + JWT)
+- Proje olusturma akisi:
+  - `GET/POST /api/projects`
+  - `GET /api/projects/:id`
+  - `POST /api/projects/:id/generate`
+  - `GET /api/projects/:id/pages`
+  - `POST /api/projects/:id/publish`
+  - UI: `src/app/projects/*`
+- Publish webhook endpoint'leri:
+  - `POST /api/internal/publish`
+  - `POST /api/revalidate` (alias)
+- Public form endpoint'leri:
+  - `POST /api/public/contact/submit`
+  - `POST /api/public/offer/submit`
+  - `POST /api/public/hr/apply`
+- Legacy uyumluluk endpoint'leri:
+  - `POST /api/contact`
+  - `POST /api/quote-request`
+  - `POST /api/job-application`
+
+Eski panel/proje yönetimi kodları arşive taşındı:
+- `legacy/2026-02-reset/`
+
+## Geliştirme
 
 ```bash
 npm install
+npm run dev
 ```
 
-## Çalıştırma
-
-```bash
-npm run dev      # localhost:3001
-npm run build    # Production build
-npm run start    # Production server
-```
+Uygulama varsayılan olarak `http://localhost:3001` üzerinde çalışır.
 
 ## Environment Variables
 
-`.env` dosyası oluşturun:
+Minimum:
 
 ```env
-# Database
-DATABASE_URL="mysql://user:password@localhost:3306/prosektorbuilder"
-
-# NextAuth
-AUTH_SECRET="your-secret-key"
-
-# OpenAI (AI Generation için)
-OPENAI_API_KEY="sk-..."
-
-# Dashboard Public API (runtime read)
-DASHBOARD_PUBLIC_API_BASE="https://dashboard.prosektorweb.com"
-
-# Dashboard Write API (create/update websites/pages)
-# Boş bırakılırsa DASHBOARD_PUBLIC_API_BASE kullanılır
-DASHBOARD_API_BASE="https://dashboard.prosektorweb.com"
-
-# Dashboard host override (middleware rewrite bypass)
-# Opsiyonel: set edilmezse DASHBOARD_PUBLIC_API_BASE / DASHBOARD_API_BASE host'u kullanilir
-NEXT_PUBLIC_DASHBOARD_HOST="dashboard.prosektorweb.com"
-
-# Dashboard API Token (Payload API access token)
-DASHBOARD_API_TOKEN="your-dashboard-api-token"
-
-# Demo sharing base URL (path-based)
-DEMO_BASE_URL="https://demo.prosektorweb.com"
-NEXT_PUBLIC_DEMO_BASE_URL="https://demo.prosektorweb.com"
-NEXT_PUBLIC_DEMO_HOST="demo.prosektorweb.com"
-
-# Dashboard collection mapping (opsiyonel)
-DASHBOARD_SITES_COLLECTION="websites"
-DASHBOARD_PAGES_COLLECTION="pages"
-DASHBOARD_PAGE_SITE_FIELD="site"
+DASHBOARD_API_HOST="https://dashboard.example.com"
+WEBHOOK_SECRET="shared-secret-with-panel"
+PANEL_API_TOKEN="<service-jwt-or-service-role-key>"
 ```
 
-## Yapı
+Geriye dönük uyumluluk:
+- `INTERNAL_PUBLISH_SECRET` ve `DEMO_PUBLISH_WEBHOOK_SECRET` de kabul edilir.
+- `PANEL_API_HOST`, `DASHBOARD_PUBLIC_API_BASE` fallback olarak okunur.
 
+Opsiyonel warmup/replay ayarları:
+
+```env
+DEMO_WARMUP_TIMEOUT_MS="6000"
+DEMO_WARMUP_RETRY_COUNT="3"
+DEMO_WARMUP_RETRY_BACKOFF_MS="200"
+
+DEMO_REPLAY_REDIS_REST_URL="https://<redis-rest-endpoint>"
+DEMO_REPLAY_REDIS_REST_TOKEN="<redis-rest-token>"
+DEMO_REPLAY_REDIS_KEY_PREFIX="demo:publish:replay"
 ```
-src/
-├── app/                # Next.js App Router
-├── features/
-│   ├── ai-generation/  # AI destekli içerik üretimi
-│   └── projects/       # Proje yönetimi
-├── components/         # UI bileşenleri
-└── lib/                # Yardımcı fonksiyonlar
+
+## Publish Webhook Kontratı
+
+Endpoint: `POST /api/internal/publish` veya `POST /api/revalidate`
+
+Header'lar:
+- `x-signature`
+- `x-timestamp`
+- `x-trace-id`
+
+Payload:
+
+```json
+{
+  "event": "publish",
+  "traceId": "evt_2026_02_x1",
+  "publishedAt": "2026-02-10T20:00:00.000+03:00",
+  "site": {
+    "id": "770e8400-e29b-41d4-a716-446655440000",
+    "slug": "ornek-osgb",
+    "status": "published"
+  },
+  "pages": ["/", "/hizmetler", "/iletisim"],
+  "source": "panel"
+}
 ```
+
+Başarılı çağrıda ilgili yollar `revalidatePath` ile yenilenir ve warmup istekleri atılır.
+
+Legacy payload (`siteSlug` alanı direkt body'de) da geçiş dönemi için desteklenir.
+
+## Contracts
+
+Kod tarafında `@prosektor/contracts` import adı kullanılır. Bu repoda geçici local path map ile çözülür:
+- `src/contracts/index.ts`
+- `tsconfig.json` içinde `@prosektor/contracts` path tanımı
+
+## Test ve Doğrulama
+
+```bash
+npm run typecheck
+npm run test
+```
+
+Not: Bu reset sonrası test kapsamı yalnızca aktif çekirdeğe odaklıdır.

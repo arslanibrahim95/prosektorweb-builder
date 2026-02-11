@@ -1,321 +1,330 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { ArrowLeft, FileText, Sparkles, Eye, Upload, Settings, Globe, Calendar, Folder } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams } from 'next/navigation'
+import {
+  ArrowLeft,
+  Sparkles,
+  Upload,
+  RefreshCcw,
+  CircleCheck,
+  CircleAlert,
+  Globe,
+  FileText,
+  Phone,
+  Mail,
+} from 'lucide-react'
+import { getOsgbTemplateLabel, OSGB_INDUSTRY } from '@/features/projects/lib/osgb'
 
 interface ProjectDetail {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  template: string | null;
-  industry: string | null;
-  status: string;
-  progress: number;
-  createdAt: string;
-  updatedAt: string;
-  domain: { id: string; name: string } | null;
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  template: string | null
+  industry: string | null
+  contact?: {
+    phone: string | null
+    email: string | null
+    address: string | null
+    city: string | null
+    district: string | null
+  }
+  status: string
+  progress: number
+  createdAt: string
+  updatedAt: string
+  domain: { id: string; name: string } | null
+  pagesCount: number
+  generatedContentsCount: number
 }
 
 interface ProjectPage {
-  id: string;
-  name: string;
-  slug: string;
-  content: string;
-  updatedAt: string;
+  id: string
+  name: string
+  slug: string
+  content: string
+  updatedAt: string
 }
 
-const statusBadge = {
-  DRAFT: { variant: 'warning' as const, label: 'Taslak' },
-  PLANNING: { variant: 'default' as const, label: 'Planlama' },
-  DESIGNING: { variant: 'default' as const, label: 'Tasarım' },
-  DEVELOPMENT: { variant: 'default' as const, label: 'Geliştirme' },
-  REVIEW: { variant: 'warning' as const, label: 'İncelemede' },
-  LIVE: { variant: 'success' as const, label: 'Yayında' },
-  CANCELLED: { variant: 'error' as const, label: 'İptal' },
-};
+interface PublishResponse {
+  success: boolean
+  error?: string
+  project?: ProjectDetail
+  pagesPublished?: number
+  qualityGate?: {
+    qaScore: number
+    threshold: number
+    escalationLevel: 'none' | 'low' | 'medium' | 'high'
+    forced: boolean
+  }
+  webhook?: {
+    ok: boolean
+    skipped?: boolean
+    warning?: string
+    traceId?: string
+  }
+}
 
 export default function ProjectDetailPage() {
-  const params = useParams();
-  const projectId = params.id as string;
+  const params = useParams<{ id: string }>()
+  const projectId = params.id
 
-  const [activeTab, setActiveTab] = useState('overview');
-  const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [pages, setPages] = useState<ProjectPage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [project, setProject] = useState<ProjectDetail | null>(null)
+  const [pages, setPages] = useState<ProjectPage[]>([])
+  const [loading, setLoading] = useState(true)
+  const [publishing, setPublishing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+
+  const publishedCount = useMemo(
+    () => pages.filter((page) => page.content && page.content.trim().length > 0).length,
+    [pages]
+  )
+
+  async function loadData() {
+    const [projectRes, pagesRes] = await Promise.all([
+      fetch(`/api/projects/${projectId}`, { cache: 'no-store' }),
+      fetch(`/api/projects/${projectId}/pages`, { cache: 'no-store' }),
+    ])
+
+    const [projectJson, pagesJson] = await Promise.all([projectRes.json(), pagesRes.json()])
+
+    if (!projectRes.ok || !projectJson.success) {
+      throw new Error(projectJson.error || 'Proje yuklenemedi')
+    }
+
+    if (!pagesRes.ok || !pagesJson.success) {
+      throw new Error(pagesJson.error || 'Sayfalar yuklenemedi')
+    }
+
+    setProject(projectJson.project)
+    setPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : [])
+  }
 
   useEffect(() => {
-    let active = true;
+    let active = true
 
-    async function loadData() {
+    async function run() {
       try {
-        const [projectRes, pagesRes] = await Promise.all([
-          fetch(`/api/projects/${projectId}`),
-          fetch(`/api/projects/${projectId}/pages`),
-        ]);
-
-        const [projectJson, pagesJson] = await Promise.all([projectRes.json(), pagesRes.json()]);
-
-        if (!projectRes.ok || !projectJson.success) {
-          throw new Error(projectJson.error || 'Proje yüklenemedi');
-        }
-
-        if (!pagesRes.ok || !pagesJson.success) {
-          throw new Error(pagesJson.error || 'Sayfalar yüklenemedi');
-        }
-
-        if (active) {
-          setProject(projectJson.project);
-          setPages(pagesJson.pages || []);
-        }
+        await loadData()
       } catch (loadError) {
         if (active) {
-          setError(loadError instanceof Error ? loadError.message : 'Veriler yüklenemedi');
+          setError(loadError instanceof Error ? loadError.message : 'Veriler yuklenemedi')
         }
       } finally {
         if (active) {
-          setLoading(false);
+          setLoading(false)
         }
       }
     }
 
-    loadData();
+    run()
 
     return () => {
-      active = false;
-    };
-  }, [projectId]);
+      active = false
+    }
+  }, [projectId])
+
+  async function handleRefresh() {
+    try {
+      setRefreshing(true)
+      setError(null)
+      await loadData()
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Veriler yuklenemedi')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  async function handlePublish() {
+    try {
+      setPublishing(true)
+      setError(null)
+      setMessage(null)
+
+      const response = await fetch(`/api/projects/${projectId}/publish`, {
+        method: 'POST',
+      })
+
+      const result = (await response.json()) as PublishResponse
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Yayinlama basarisiz')
+      }
+
+      if (result.project) {
+        setProject(result.project)
+      }
+
+      await handleRefresh()
+
+      const qaNote = result.qualityGate
+        ? `QA ${result.qualityGate.qaScore}/${result.qualityGate.threshold} (${result.qualityGate.escalationLevel})`
+        : 'QA notu yok'
+
+      const webhookNote = result.webhook?.ok
+        ? 'Webhook tamamlandi'
+        : result.webhook?.warning || 'Webhook atlandi'
+
+      setMessage(`Yayinlama tamamlandi (${result.pagesPublished ?? 0} sayfa). ${qaNote}. ${webhookNote}.`)
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : 'Yayinlama basarisiz')
+    } finally {
+      setPublishing(false)
+    }
+  }
 
   if (loading) {
-    return <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8 text-slate-300">Proje yükleniyor...</main>;
+    return (
+      <main className="min-h-screen bg-[#0f172a] px-4 py-10 text-slate-200">
+        Proje yukleniyor...
+      </main>
+    )
   }
 
-  if (error || !project) {
+  if (error && !project) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8">
-        <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
-          {error || 'Proje bulunamadı'}
+      <main className="min-h-screen bg-[#0f172a] px-4 py-10">
+        <div className="mx-auto max-w-3xl rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-rose-100">
+          {error}
         </div>
       </main>
-    );
+    )
   }
 
-  const status = statusBadge[project.status as keyof typeof statusBadge] || statusBadge.DRAFT;
-  const generatedPages = pages.filter((page) => page.content.trim().length > 0).length;
+  if (!project) {
+    return null
+  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/projects">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
+    <main className="min-h-screen bg-[#0f172a] text-slate-100">
+      <div className="mx-auto max-w-6xl px-4 py-10">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-3">
+            <Link href="/projects" className="inline-flex items-center gap-2 text-sm text-slate-300 hover:text-white">
+              <ArrowLeft className="h-4 w-4" />
+              Projelere don
             </Link>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-white">{project.name}</h1>
-                <Badge variant={status.variant}>{status.label}</Badge>
-              </div>
-              <p className="text-sm text-slate-400">{project.description || 'Açıklama girilmemiş'}</p>
-            </div>
+            <h1 className="text-3xl font-semibold tracking-tight">{project.name}</h1>
+            <p className="max-w-3xl text-slate-300">
+              {project.description || 'Aciklama bulunmuyor.'}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link href={`/projects/${projectId}/generate`}>
-              <Button variant="outline">
-                <Sparkles className="h-4 w-4" />
-                AI Üret
-              </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/projects/${projectId}/generate`}
+              className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              <Sparkles className="h-4 w-4" />
+              Icerik Uret
             </Link>
-            <Link href={`/projects/${projectId}/preview`}>
-              <Button variant="outline">
-                <Eye className="h-4 w-4" />
-                Önizle
-              </Button>
-            </Link>
-            <Button>
+            <button
+              onClick={handlePublish}
+              disabled={publishing}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+            >
               <Upload className="h-4 w-4" />
-              Yayınla
-            </Button>
+              {publishing ? 'Yayinlaniyor...' : 'Yayinla'}
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-500 px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-slate-700/60"
+            >
+              <RefreshCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Yenile
+            </button>
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="overview">
-              <Folder className="mr-2 h-4 w-4" />
-              Genel Bakış
-            </TabsTrigger>
-            <TabsTrigger value="pages">
-              <FileText className="mr-2 h-4 w-4" />
-              Sayfalar
-            </TabsTrigger>
-            <TabsTrigger value="settings">
-              <Settings className="mr-2 h-4 w-4" />
-              Ayarlar
-            </TabsTrigger>
-          </TabsList>
+        {message && (
+          <div className="mb-5 rounded-xl border border-emerald-400/50 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {message}
+          </div>
+        )}
 
-          <TabsContent value="overview">
-            <div className="grid gap-6 md:grid-cols-3">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <FileText className="h-5 w-5 text-purple-400" />
-                    Sayfalar
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold text-white">{pages.length}</p>
-                  <p className="text-sm text-slate-400">{generatedPages} sayfada içerik var</p>
-                </CardContent>
-              </Card>
+        {error && (
+          <div className="mb-5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            {error}
+          </div>
+        )}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Globe className="h-5 w-5 text-blue-400" />
-                    Domain
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-lg font-medium text-white">{project.domain?.name || 'Atanmadı'}</p>
-                  <p className="text-sm text-slate-400">{project.domain ? 'Bağlı' : 'Henüz domain bağlanmadı'}</p>
-                </CardContent>
-              </Card>
+        <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
+            <p className="text-xs uppercase tracking-wider text-slate-400">Sablon</p>
+            <p className="mt-2 font-semibold text-white">{getOsgbTemplateLabel(project.template)}</p>
+          </article>
+          <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
+            <p className="text-xs uppercase tracking-wider text-slate-400">Sektor</p>
+            <p className="mt-2 font-semibold text-white">{project.industry || OSGB_INDUSTRY}</p>
+          </article>
+          <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
+            <p className="text-xs uppercase tracking-wider text-slate-400">Sayfalar</p>
+            <p className="mt-2 font-semibold text-white">{pages.length} toplam, {publishedCount} icerikli</p>
+          </article>
+          <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
+            <p className="text-xs uppercase tracking-wider text-slate-400">Durum</p>
+            <p className="mt-2 font-semibold text-white">{project.status}</p>
+          </article>
+        </section>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Calendar className="h-5 w-5 text-green-400" />
-                    Son Güncelleme
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-lg font-medium text-white">{new Date(project.updatedAt).toLocaleDateString('tr-TR')}</p>
-                  <p className="text-sm text-slate-400">{new Date(project.updatedAt).toLocaleTimeString('tr-TR')}</p>
-                </CardContent>
-              </Card>
+        <section className="mb-6 rounded-xl border border-slate-700 bg-slate-800/60 p-5">
+          <h2 className="mb-4 text-lg font-semibold">Iletisim Bilgileri</h2>
+          <div className="grid gap-3 text-sm text-slate-200 md:grid-cols-2">
+            <p className="inline-flex items-center gap-2">
+              <Phone className="h-4 w-4 text-cyan-300" />
+              {project.contact?.phone || '-'}
+            </p>
+            <p className="inline-flex items-center gap-2">
+              <Mail className="h-4 w-4 text-amber-300" />
+              {project.contact?.email || '-'}
+            </p>
+            <p className="inline-flex items-center gap-2 md:col-span-2">
+              <Globe className="h-4 w-4 text-emerald-300" />
+              {project.domain?.name || `${project.slug}.ornek-domain.com`}
+            </p>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-700 bg-slate-800/60 p-5">
+          <h2 className="mb-4 text-lg font-semibold">Sayfalar</h2>
+          {pages.length === 0 ? (
+            <p className="text-sm text-slate-300">Sayfa bulunamadi. Icerik uretimi adimini calistirin.</p>
+          ) : (
+            <div className="space-y-2">
+              {pages.map((page) => (
+                <div key={page.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2.5">
+                  <div>
+                    <p className="font-medium text-white">{page.name}</p>
+                    <p className="text-xs text-slate-400">/{page.slug || ''}</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    {page.content && page.content.trim().length > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-1 text-emerald-200">
+                        <CircleCheck className="h-3.5 w-3.5" />
+                        Icerik var
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-amber-100">
+                        <CircleAlert className="h-3.5 w-3.5" />
+                        Bos
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-700 px-2 py-1 text-slate-200">
+                      <FileText className="h-3.5 w-3.5" />
+                      {new Date(page.updatedAt).toLocaleDateString('tr-TR')}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <Card className="mt-6">
-              <CardHeader>
-                <CardTitle>Hızlı Aksiyonlar</CardTitle>
-                <CardDescription>Proje üzerinde devam etmek için bir yol seçin</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Link href={`/projects/${projectId}/generate`}>
-                    <div className="cursor-pointer rounded-lg border border-white/10 p-4 transition-all hover:border-purple-500/50 hover:bg-purple-500/10">
-                      <Sparkles className="mb-3 h-8 w-8 text-purple-400" />
-                      <h3 className="font-medium text-white">AI İçerik Üret</h3>
-                      <p className="text-sm text-slate-400">Temel sayfaları otomatik üret</p>
-                    </div>
-                  </Link>
-                  <Link href={`/projects/${projectId}/editor`}>
-                    <div className="cursor-pointer rounded-lg border border-white/10 p-4 transition-all hover:border-blue-500/50 hover:bg-blue-500/10">
-                      <FileText className="mb-3 h-8 w-8 text-blue-400" />
-                      <h3 className="font-medium text-white">İçerik Düzenle</h3>
-                      <p className="text-sm text-slate-400">Sayfaları manuel güncelle</p>
-                    </div>
-                  </Link>
-                  <Link href={`/projects/${projectId}/preview`}>
-                    <div className="cursor-pointer rounded-lg border border-white/10 p-4 transition-all hover:border-green-500/50 hover:bg-green-500/10">
-                      <Eye className="mb-3 h-8 w-8 text-green-400" />
-                      <h3 className="font-medium text-white">Önizle</h3>
-                      <p className="text-sm text-slate-400">Tasarımı canlı gör</p>
-                    </div>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="pages">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Sayfa Listesi</CardTitle>
-                  <Link href={`/projects/${projectId}/editor`}>
-                    <Button size="sm">
-                      <FileText className="h-4 w-4" />
-                      Düzenleyiciye Git
-                    </Button>
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {pages.length === 0 ? (
-                  <p className="text-slate-400">Henüz sayfa yok. Önce AI üretimi başlatın.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {pages.map((page) => (
-                      <Link
-                        key={page.id}
-                        href={`/projects/${projectId}/editor?page=${page.id}`}
-                        className="flex items-center justify-between rounded-lg border border-white/10 p-4 transition-all hover:border-purple-500/50 hover:bg-white/5"
-                      >
-                        <div className="flex items-center gap-3">
-                          <FileText className="h-5 w-5 text-slate-400" />
-                          <div>
-                            <p className="font-medium text-white">{page.name}</p>
-                            <p className="text-sm text-slate-500">/{page.slug}</p>
-                          </div>
-                        </div>
-                        <Badge variant={page.content.trim().length > 0 ? 'success' : 'warning'}>
-                          {page.content.trim().length > 0 ? 'Hazır' : 'Taslak'}
-                        </Badge>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>Proje Ayarları</CardTitle>
-                <CardDescription>Temel proje metadatası</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="text-sm text-slate-400">Proje Adı</label>
-                    <p className="font-medium text-white">{project.name}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm text-slate-400">Slug</label>
-                    <p className="font-medium text-white">{project.slug}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm text-slate-400">Şablon</label>
-                    <p className="font-medium text-white">{project.template || 'standard'}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm text-slate-400">Sektör</label>
-                    <p className="font-medium text-white">{project.industry || 'OSGB'}</p>
-                  </div>
-                </div>
-                <div className="border-t border-white/10 pt-4">
-                  <Button variant="outline" className="border-red-400/50 text-red-400 hover:bg-red-400/10">
-                    Projeyi Sil
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+          )}
+        </section>
       </div>
     </main>
-  );
+  )
 }

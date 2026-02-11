@@ -1,69 +1,113 @@
-'use client';
+'use client'
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { ArrowLeft, Sparkles, CheckCircle, Circle, AlertCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams } from 'next/navigation'
+import { ArrowLeft, Sparkles, Circle, CircleCheck, Loader2, AlertTriangle } from 'lucide-react'
+
+interface ProjectDetail {
+  name: string
+  description: string | null
+  contact?: {
+    phone: string | null
+    email: string | null
+    address: string | null
+    city: string | null
+    district: string | null
+  }
+}
 
 interface GenerationStep {
-  id: string;
-  name: string;
-  status: 'pending' | 'running' | 'completed' | 'error';
+  id: string
+  label: string
+  status: 'pending' | 'running' | 'completed' | 'error'
 }
 
 const initialSteps: GenerationStep[] = [
-  { id: 'analysis', name: 'Analiz', status: 'pending' },
-  { id: 'research', name: 'Araştırma', status: 'pending' },
-  { id: 'design', name: 'Tasarım', status: 'pending' },
-  { id: 'content', name: 'İçerik Üretimi', status: 'pending' },
-  { id: 'seo', name: 'SEO Optimizasyonu', status: 'pending' },
-  { id: 'build', name: 'Sayfa Oluşturma', status: 'pending' },
-];
+  { id: 'context', label: 'Sirket verileri okunuyor', status: 'pending' },
+  { id: 'pages', label: 'Temel sayfalar olusturuluyor', status: 'pending' },
+  { id: 'blocks', label: 'Blok icerikleri uretiliyor', status: 'pending' },
+  { id: 'seo', label: 'SEO alanlari dolduruluyor', status: 'pending' },
+  { id: 'final', label: 'Panel kayitlari tamamlaniyor', status: 'pending' },
+]
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export default function GeneratePage() {
-  const params = useParams();
-  const projectId = params.id as string;
+export default function GenerateProjectPages() {
+  const params = useParams<{ id: string }>()
+  const projectId = params.id
 
-  const [companyName, setCompanyName] = useState('');
-  const [description, setDescription] = useState('');
-  const [services, setServices] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
+  const [companyName, setCompanyName] = useState('')
+  const [description, setDescription] = useState('')
+  const [services, setServices] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [address, setAddress] = useState('')
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [steps, setSteps] = useState<GenerationStep[]>(initialSteps);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [steps, setSteps] = useState<GenerationStep[]>(initialSteps)
+  const [generating, setGenerating] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const isFormValid = useMemo(() => companyName.trim().length > 1 && description.trim().length > 10, [companyName, description]);
+  useEffect(() => {
+    let active = true
 
-  const handleGenerate = async () => {
-    if (!isFormValid) return;
+    async function loadDefaults() {
+      try {
+        const response = await fetch(`/api/projects/${projectId}`, { cache: 'no-store' })
+        const json = await response.json()
+        if (!response.ok || !json.success) return
 
-    setIsGenerating(true);
-    setDone(false);
-    setError(null);
-    setSteps(initialSteps);
+        const project = json.project as ProjectDetail
+        if (!active) return
+
+        setCompanyName((prev) => (prev.trim() ? prev : project.name || ''))
+        setDescription((prev) => (prev.trim() ? prev : project.description || ''))
+        setPhone((prev) => (prev.trim() ? prev : project.contact?.phone || ''))
+        setEmail((prev) => (prev.trim() ? prev : project.contact?.email || ''))
+
+        setAddress((prev) => {
+          if (prev.trim()) return prev
+          if (project.contact?.address) return project.contact.address
+          const cityLine = [project.contact?.district, project.contact?.city].filter(Boolean).join(' / ')
+          return cityLine || ''
+        })
+      } catch {
+        // Best effort prefill.
+      }
+    }
+
+    loadDefaults()
+
+    return () => {
+      active = false
+    }
+  }, [projectId])
+
+  const formValid = useMemo(
+    () => companyName.trim().length > 1 && description.trim().length > 10,
+    [companyName, description]
+  )
+
+  async function handleGenerate() {
+    if (!formValid) return
+
+    setGenerating(true)
+    setDone(false)
+    setError(null)
+    setSteps(initialSteps)
 
     try {
       for (let i = 0; i < initialSteps.length; i += 1) {
         setSteps((prev) =>
-          prev.map((step, idx) => ({
+          prev.map((step, index) => ({
             ...step,
-            status: idx < i ? 'completed' : idx === i ? 'running' : 'pending',
+            status: index < i ? 'completed' : index === i ? 'running' : 'pending',
           }))
-        );
-        await wait(450);
+        )
+        await wait(350)
       }
 
       const response = await fetch(`/api/projects/${projectId}/generate`, {
@@ -79,171 +123,160 @@ export default function GeneratePage() {
           email,
           address,
         }),
-      });
+      })
 
-      const result = await response.json();
+      const result = await response.json()
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'İçerik üretimi başarısız');
+        throw new Error(result.error || 'Icerik uretimi basarisiz')
       }
 
-      setSteps((prev) => prev.map((step) => ({ ...step, status: 'completed' })));
-      setDone(true);
+      setSteps((prev) => prev.map((step) => ({ ...step, status: 'completed' })))
+      setDone(true)
     } catch (generationError) {
-      setError(generationError instanceof Error ? generationError.message : 'İçerik üretimi başarısız');
-      setSteps((prev) => prev.map((step) => ({ ...step, status: step.status === 'running' ? 'error' : step.status })));
+      setSteps((prev) =>
+        prev.map((step) => ({
+          ...step,
+          status: step.status === 'running' ? 'error' : step.status,
+        }))
+      )
+      setError(generationError instanceof Error ? generationError.message : 'Icerik uretimi basarisiz')
     } finally {
-      setIsGenerating(false);
+      setGenerating(false)
     }
-  };
-
-  const StepIcon = ({ status }: { status: GenerationStep['status'] }) => {
-    if (status === 'completed') return <CheckCircle className="h-5 w-5 text-green-400" />;
-    if (status === 'running') return <div className="h-5 w-5 animate-spin rounded-full border-2 border-purple-400 border-t-transparent" />;
-    if (status === 'error') return <AlertCircle className="h-5 w-5 text-red-400" />;
-    return <Circle className="h-5 w-5 text-slate-600" />;
-  };
+  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="container mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-8 flex items-center gap-4">
-          <Link href={`/projects/${projectId}`}>
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
-              <Sparkles className="h-6 w-6 text-purple-400" />
-              AI İçerik Üretimi
-            </h1>
-            <p className="text-slate-400">Temel proje sayfalarını otomatik üretin</p>
+    <main className="min-h-screen bg-[#111827] text-slate-100">
+      <div className="mx-auto grid max-w-6xl gap-7 px-4 py-10 lg:grid-cols-[1.2fr_0.8fr]">
+        <section className="space-y-6">
+          <div className="space-y-3">
+            <Link href={`/projects/${projectId}`} className="inline-flex items-center gap-2 text-sm text-slate-300 hover:text-white">
+              <ArrowLeft className="h-4 w-4" />
+              Proje detayina don
+            </Link>
+            <h1 className="text-3xl font-semibold">Sayfa Uretim Adimi</h1>
+            <p className="text-slate-300">
+              Bu adim dashboard veri modeline uyumlu ana sayfa, hakkimizda, hizmetler ve iletisim sayfalarini taslak olarak olusturur.
+            </p>
           </div>
-        </div>
 
-        <div className="grid gap-8 md:grid-cols-2">
-          <div className="space-y-6">
-            {error && (
-              <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">{error}</div>
+          {error && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              {error}
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5">
+            <h2 className="mb-4 text-lg font-semibold">Icerik Girdileri</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm text-slate-300">Firma adi *</span>
+                <input
+                  value={companyName}
+                  onChange={(event) => setCompanyName(event.target.value)}
+                  className="w-full rounded-xl border border-slate-600 bg-slate-950/60 px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm text-slate-300">Firma tanimi *</span>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-600 bg-slate-950/60 px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm text-slate-300">Hizmet listesi (opsiyonel)</span>
+                <textarea
+                  value={services}
+                  onChange={(event) => setServices(event.target.value)}
+                  rows={3}
+                  placeholder="Her satira bir hizmet"
+                  className="w-full rounded-xl border border-slate-600 bg-slate-950/60 px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-sm text-slate-300">Telefon</span>
+                <input
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  className="w-full rounded-xl border border-slate-600 bg-slate-950/60 px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="text-sm text-slate-300">E-posta</span>
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="w-full rounded-xl border border-slate-600 bg-slate-950/60 px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm text-slate-300">Adres</span>
+                <textarea
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-600 bg-slate-950/60 px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+            </div>
+
+            <button
+              onClick={handleGenerate}
+              disabled={!formValid || generating}
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-60"
+            >
+              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {generating ? 'Uretiliyor...' : 'Uretimi Baslat'}
+            </button>
+
+            {done && !generating && (
+              <div className="mt-5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                Sayfalar olusturuldu. Proje detayina donup yayinlama adimina gecebilirsiniz.
+              </div>
             )}
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Firma Bilgileri</CardTitle>
-                <CardDescription>AI içerik için temel metinleri girin</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="companyName">Firma Adı *</Label>
-                  <Input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Örn: ABC OSGB" className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="description">Firma Tanımı *</Label>
-                  <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Firmanızı kısaca tanımlayın" className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="services">Hizmetler</Label>
-                  <Textarea id="services" value={services} onChange={(e) => setServices(e.target.value)} placeholder="Her satıra bir hizmet" className="mt-1" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>İletişim Bilgileri</CardTitle>
-                <CardDescription>Opsiyonel - İletişim sayfasında kullanılır</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="phone">Telefon</Label>
-                  <Input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0212 XXX XX XX" className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="email">E-posta</Label>
-                  <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="info@firma.com" className="mt-1" />
-                </div>
-                <div>
-                  <Label htmlFor="address">Adres</Label>
-                  <Textarea id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Adres" className="mt-1" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Button size="lg" className="w-full" disabled={!isFormValid || isGenerating} onClick={handleGenerate}>
-              {isGenerating ? (
-                <>
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Üretiliyor...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-5 w-5" />
-                  İçerik Üret
-                </>
-              )}
-            </Button>
           </div>
+        </section>
 
-          <div>
-            <Card className="sticky top-8">
-              <CardHeader>
-                <CardTitle>Üretim Süreci</CardTitle>
-                <CardDescription>
-                  {isGenerating
-                    ? 'İçerik üretiliyor...'
-                    : done
-                    ? 'Üretim tamamlandı'
-                    : 'Üretim başlamadı'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {steps.map((step, index) => (
-                    <div
-                      key={step.id}
-                      className={`flex items-center gap-3 rounded-lg p-3 transition-colors ${
-                        step.status === 'running'
-                          ? 'border border-purple-500/50 bg-purple-500/20'
-                          : step.status === 'completed'
-                          ? 'bg-green-500/10'
-                          : step.status === 'error'
-                          ? 'bg-red-500/10'
-                          : 'bg-white/5'
-                      }`}
-                    >
-                      <StepIcon status={step.status} />
-                      <div className="flex-1">
-                        <p className={`font-medium ${step.status === 'completed' ? 'text-green-300' : step.status === 'running' ? 'text-purple-300' : 'text-slate-400'}`}>
-                          {step.name}
-                        </p>
-                      </div>
-                      <span className="text-xs text-slate-500">{index + 1}/{steps.length}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {done && !isGenerating && (
-                  <div className="mt-6 rounded-lg border border-green-500/50 bg-green-500/20 p-4">
-                    <p className="flex items-center gap-2 font-medium text-green-300">
-                      <CheckCircle className="h-5 w-5" />
-                      Sayfalar başarıyla üretildi
-                    </p>
-                    <div className="mt-4 flex gap-2">
-                      <Link href={`/projects/${projectId}/editor`}>
-                        <Button size="sm" variant="outline">Düzenle</Button>
-                      </Link>
-                      <Link href={`/projects/${projectId}/preview`}>
-                        <Button size="sm">Önizle</Button>
-                      </Link>
-                    </div>
-                  </div>
+        <aside className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5">
+          <h2 className="mb-4 text-lg font-semibold">Uretim Durumu</h2>
+          <div className="space-y-2.5">
+            {steps.map((step) => (
+              <div
+                key={step.id}
+                className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm ${
+                  step.status === 'completed'
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+                    : step.status === 'running'
+                      ? 'border-cyan-400/40 bg-cyan-500/10 text-cyan-100'
+                      : step.status === 'error'
+                        ? 'border-rose-400/40 bg-rose-500/10 text-rose-100'
+                        : 'border-slate-700 bg-slate-950/40 text-slate-300'
+                }`}
+              >
+                {step.status === 'completed' ? (
+                  <CircleCheck className="h-4 w-4" />
+                ) : step.status === 'running' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : step.status === 'error' ? (
+                  <AlertTriangle className="h-4 w-4" />
+                ) : (
+                  <Circle className="h-4 w-4" />
                 )}
-              </CardContent>
-            </Card>
+                {step.label}
+              </div>
+            ))}
           </div>
-        </div>
+        </aside>
       </div>
     </main>
-  );
+  )
 }

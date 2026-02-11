@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getSiteData } from '@/features/sites/lib/site-data';
-import { AboutSection } from '@/features/sites/components/sections/AboutSection';
+import { BlockRenderer } from '@/features/sites/components/BlockRenderer';
 import { CTASection } from '@/features/sites/components/sections/CTASection';
 
 interface HakkimizdaPageProps {
@@ -29,8 +29,25 @@ export default async function HakkimizdaPage({ params }: HakkimizdaPageProps) {
     notFound();
   }
 
-  const { project, company, settings, contents } = siteData;
+  const { project, company, settings, contents, pages } = siteData;
   const aboutContent = contents['ABOUT'];
+  const aboutPageData = pages.find((p) => p.slug === '/hakkimizda');
+
+  if (aboutPageData && aboutPageData.blocks.length > 0) {
+    return (
+      <>
+        {aboutPageData.blocks.map((block, index) => (
+          <BlockRenderer
+            key={`${block.blockType}-${index}`}
+            block={block}
+            slug={project.slug}
+            siteData={siteData}
+            themeId={siteData.design.theme}
+          />
+        ))}
+      </>
+    );
+  }
 
   return (
     <>

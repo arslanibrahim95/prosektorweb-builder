@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getSiteData } from '@/features/sites/lib/site-data';
+import { BlockRenderer } from '@/features/sites/components/BlockRenderer';
 import { ContactSection } from '@/features/sites/components/sections/ContactSection';
 
 interface IletisimPageProps {
@@ -28,22 +29,39 @@ export default async function IletisimPage({ params }: IletisimPageProps) {
     notFound();
   }
 
-  const { settings } = siteData;
+  const { project, settings, pages } = siteData;
+  const contactPageData = pages.find((p) => p.slug === '/iletisim');
 
   return (
     <>
-      {/* Page Header */}
-      <section className="py-16 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] text-white">
-        <div className="container mx-auto px-4 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">Iletisim</h1>
-          <p className="text-xl text-white/90 max-w-2xl mx-auto">
-            Sorulariniz ve talepleriniz icin bizimle iletisime gecin
-          </p>
-        </div>
-      </section>
+      {contactPageData && contactPageData.blocks.length > 0 ? (
+        <>
+          {contactPageData.blocks.map((block, index) => (
+            <BlockRenderer
+              key={`${block.blockType}-${index}`}
+              block={block}
+              slug={project.slug}
+              siteData={siteData}
+              themeId={siteData.design.theme}
+            />
+          ))}
+        </>
+      ) : (
+        <>
+          {/* Page Header */}
+          <section className="py-16 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] text-white">
+            <div className="container mx-auto px-4 text-center">
+              <h1 className="text-4xl md:text-5xl font-bold mb-4">Iletisim</h1>
+              <p className="text-xl text-white/90 max-w-2xl mx-auto">
+                Sorulariniz ve talepleriniz icin bizimle iletisime gecin
+              </p>
+            </div>
+          </section>
+        </>
+      )}
 
       <ContactSection
-        projectId={String(siteData.project.id)}
+        siteId={String(siteData.project.id)}
         phone={settings.phone}
         email={settings.email}
         address={settings.address}

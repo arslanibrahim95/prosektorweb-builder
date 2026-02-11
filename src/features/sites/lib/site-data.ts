@@ -1,7 +1,14 @@
-import type { Project, Page, Service, BlogPost } from '@/payload-types'
-import { DashboardPublicSitePayloadSchema } from '@/features/dashboard/contracts'
-
-// ── Types ──────────────────────────────────────────────────────
+import type { PanelPage, PanelRevision, PanelSite } from '@/features/site-engine/lib/panel-client'
+import {
+  getPanelPageRevision,
+  getPanelSiteById,
+  listPanelModules,
+  listPanelPageRevisions,
+  listPanelPages,
+  listPanelSites,
+} from '@/features/site-engine/lib/panel-client'
+import { getSiteTheme } from '@/features/sites/themes/registry'
+import { normalizeSiteThemeId } from '@/features/sites/themes/types'
 
 export interface SitePageData {
   slug: string
@@ -18,22 +25,37 @@ export interface PageBlock {
 }
 
 export interface SiteServiceData {
-  id: number
+  id: string
   name: string
   slug: string
   shortDescription: string
 }
 
+export interface SiteBlogPost {
+  id: string
+  slug: string
+  title: string
+  excerpt?: string | null
+  content?: {
+    root: {
+      children: Array<Record<string, unknown>>
+    }
+  } | null
+  coverImage?: { url?: string } | null
+  publishedAt?: string | null
+  createdAt: string
+}
+
 export interface SiteData {
   project: {
-    id: number
+    id: string
     name: string
     slug: string
     description: string | null
     industry: string | null
   }
   company: {
-    id: number
+    id: string
     name: string
     logoUrl: string | null
   }
@@ -64,6 +86,7 @@ export interface SiteData {
     secondaryColor: string
     accentColor: string
     backgroundColor: string
+    theme: string
     fontHeading: string
     fontBody: string
     logoUrl: string | null
@@ -81,17 +104,17 @@ export interface SiteData {
   }
 }
 
-// ── Helper: resolve uploaded media URL ─────────────────────────
-
-function getMediaUrl(media: unknown): string | null {
-  if (!media) return null
-  if (typeof media === 'object' && media !== null && 'url' in media) {
-    return (media as { url: string }).url
-  }
-  return null
+type ContactModuleSettings = {
+  recipients?: string[]
+  address?: string
+  phones?: string[]
+  emails?: string[]
+  map_embed_url?: string
+  kvkk_legal_text_id?: string
+  success_message?: string
+  working_hours?: string
+  social_media?: Record<string, string>
 }
-
-const DASHBOARD_PUBLIC_API_BASE = process.env.DASHBOARD_PUBLIC_API_BASE?.replace(/\/$/, '') || ''
 
 const ALLOWED_BLOCK_TYPES = new Set([
   'hero',
@@ -106,18 +129,39 @@ const ALLOWED_BLOCK_TYPES = new Set([
   'content',
 ])
 
-const normalizeSlug = (value: string | undefined | null): string => {
-  if (!value) return '/'
-  const cleaned = value
+function slugifyValue(value: string): string {
+  return value
+    .toLowerCase()
     .trim()
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
-
-  if (!cleaned) return '/'
-  return `/${cleaned}`
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/_/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
-const slugToContentKey = (slug: string): string => {
+function normalizeSlug(value: string | undefined | null): string {
+  if (!value) return '/'
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === '/') return '/'
+  const cleaned = trimmed.replace(/^\/+/, '').replace(/\/+$/, '')
+  return cleaned ? `/${cleaned}` : '/'
+}
+
+function stripProtocolHost(value: string): string {
+  const raw = value.trim()
+  if (!raw) return ''
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`)
+    return parsed.host.toLowerCase()
+  } catch {
+    return raw.toLowerCase()
+  }
+}
+
+function slugToContentKey(slug: string): string {
   const normalized = normalizeSlug(slug)
   if (normalized === '/') return 'HOMEPAGE'
   if (normalized === '/hakkimizda') return 'ABOUT'
@@ -127,359 +171,334 @@ const slugToContentKey = (slug: string): string => {
   return normalized.replace(/^\//, '').replace(/[/-]+/g, '_').toUpperCase()
 }
 
-const toPageBlocks = (page: { puckData?: { content?: Array<{ props?: Record<string, unknown>; type?: string }> | null } | null }): PageBlock[] => {
-  const content = Array.isArray(page.puckData?.content) ? page.puckData.content : []
-  return content
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
-      const type = typeof entry.type === 'string' ? entry.type : null
-      if (!type || !ALLOWED_BLOCK_TYPES.has(type)) return null
+function lexicalText(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  const root = (value as { root?: { children?: unknown[] } }).root
+  if (!root || !Array.isArray(root.children)) return ''
 
-      const props =
-        entry.props && typeof entry.props === 'object' && !Array.isArray(entry.props)
-          ? (entry.props as Record<string, unknown>)
-          : {}
+  const pieces: string[] = []
 
-      return {
-        blockType: type,
-        ...props,
-      }
-    })
-    .filter(Boolean) as PageBlock[]
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return
+    const record = node as Record<string, unknown>
+    if (typeof record.text === 'string' && record.text.trim()) {
+      pieces.push(record.text.trim())
+    }
+    if (Array.isArray(record.children)) {
+      for (const child of record.children) walk(child)
+    }
+  }
+
+  for (const child of root.children) {
+    walk(child)
+  }
+
+  return pieces.join(' ').trim()
 }
 
-const extractMainContent = (blocks: PageBlock[]): string => {
+function extractTextContent(value: unknown): string {
+  if (typeof value === 'string') return value
+  return lexicalText(value)
+}
+
+function normalizeKeywords(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+function normalizeBlockFromContracts(value: unknown): PageBlock | null {
+  if (!value || typeof value !== 'object') return null
+
+  const record = value as Record<string, unknown>
+  if (typeof record.type === 'string') {
+    if (!ALLOWED_BLOCK_TYPES.has(record.type)) return null
+    const props =
+      record.props && typeof record.props === 'object' && !Array.isArray(record.props)
+        ? (record.props as Record<string, unknown>)
+        : {}
+    return {
+      blockType: record.type,
+      ...props,
+    }
+  }
+
+  if (typeof record.blockType === 'string') {
+    if (!ALLOWED_BLOCK_TYPES.has(record.blockType)) return null
+    return record as PageBlock
+  }
+
+  return null
+}
+
+function normalizeBlocks(value: unknown): PageBlock[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => normalizeBlockFromContracts(entry))
+    .filter((entry): entry is PageBlock => Boolean(entry))
+}
+
+function extractMainContent(blocks: PageBlock[]): string {
   const contentBlock = blocks.find((block) => block.blockType === 'content')
   if (!contentBlock) return ''
-  const value = contentBlock.text
-  return typeof value === 'string' ? value : ''
+  return extractTextContent(contentBlock.text)
 }
 
-const mapSocialLinks = (settings: Array<{ platform?: string | null; url?: string | null }> | null | undefined) => {
-  if (!Array.isArray(settings)) return null
+function deriveSiteSlugCandidates(site: PanelSite): string[] {
+  const candidates = new Set<string>()
+  const rawPrimary = typeof site.primary_domain === 'string' ? site.primary_domain : ''
+  const primaryHost = stripProtocolHost(rawPrimary)
 
-  const byPlatform = settings.reduce((acc, link) => {
-    const platform = typeof link.platform === 'string' ? link.platform.toLowerCase() : ''
-    const url = typeof link.url === 'string' ? link.url : ''
-    if (!platform || !url) return acc
-    acc[platform] = url
-    return acc
-  }, {} as Record<string, string>)
-
-  return {
-    facebook: byPlatform.facebook,
-    instagram: byPlatform.instagram,
-    linkedin: byPlatform.linkedin,
-    twitter: byPlatform.twitter,
-    youtube: byPlatform.youtube,
+  if (primaryHost) {
+    candidates.add(primaryHost)
+    candidates.add(primaryHost.replace(/^www\./, ''))
+    const firstPart = primaryHost.replace(/^www\./, '').split('.')[0]
+    if (firstPart) candidates.add(firstPart)
   }
-}
 
-const getDashboardSiteData = async (slug: string): Promise<SiteData | null> => {
-  if (!DASHBOARD_PUBLIC_API_BASE) return null
+  const settings = site.settings || {}
+  const fromSettings = [
+    settings.site_slug,
+    settings.slug as string | undefined,
+    settings.siteSlug as string | undefined,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
 
-  const endpoint = `${DASHBOARD_PUBLIC_API_BASE}/api/public/sites/${encodeURIComponent(slug)}/pages`
-
-  try {
-    const response = await fetch(endpoint, {
-      headers: {
-        Accept: 'application/json',
-      },
-      next: { revalidate: 30 },
-    })
-
-    if (!response.ok) {
-      return null
-    }
-
-    const rawPayload = await response.json()
-    const parsed = DashboardPublicSitePayloadSchema.safeParse(rawPayload)
-    if (!parsed.success) {
-      console.error('Dashboard public payload schema mismatch:', parsed.error.issues[0]?.message)
-      return null
-    }
-
-    const payload = parsed.data
-    if (payload.ok === false || !payload.site) return null
-
-    const site = payload.site
-    const settings = payload.settings ?? {}
-    const contact =
-      settings.contact && typeof settings.contact === 'object' ? settings.contact : null
-    const pagesPayload = (Array.isArray(payload.pages) ? payload.pages : []).filter((page) => {
-      const status = typeof page.status === 'string' ? page.status.toLowerCase() : ''
-      return status === 'published'
-    })
-
-    const pages: SitePageData[] = pagesPayload.map((page) => {
-      const normalizedSlug = normalizeSlug(page.slug)
-      const blocks = toPageBlocks(page)
-
-      return {
-        blocks,
-        keywords: [],
-        metaDescription: typeof page.seoDescription === 'string' ? page.seoDescription : null,
-        metaTitle:
-          typeof page.seoTitle === 'string'
-            ? page.seoTitle
-            : typeof page.puckData?.root?.props?.title === 'string'
-              ? page.puckData.root.props.title
-              : typeof page.title === 'string'
-                ? page.title
-                : null,
-        slug: normalizedSlug,
-        title: typeof page.title === 'string' ? page.title : 'Sayfa',
-      }
-    })
-
-    const contents = pages.reduce((acc, page) => {
-      acc[slugToContentKey(page.slug)] = {
-        content: extractMainContent(page.blocks),
-        metaDescription: page.metaDescription,
-        metaTitle: page.metaTitle,
-        title: page.title,
-      }
-      return acc
-    }, {} as SiteData['contents'])
-
-    const homepage = pages.find((page) => page.slug === '/')
-
-    return {
-      company: {
-        id: site.id || 0,
-        logoUrl: null,
-        name: site.name || slug,
-      },
-      contents,
-      design: {
-        accentColor: site.brandSecondary || '#1d6fa5',
-        backgroundColor: '#ffffff',
-        faviconUrl: null,
-        fontBody: 'Inter',
-        fontHeading: 'Inter',
-        logoUrl: null,
-        primaryColor: site.brandPrimary || '#0f4c81',
-        secondaryColor: site.brandSecondary || '#1d6fa5',
-      },
-      pages,
-      project: {
-        description: site.description || null,
-        id: site.id || 0,
-        industry: null,
-        name: site.name || slug,
-        slug: site.slug || slug,
-      },
-      services: [],
-      settings: {
-        address: typeof contact?.address === 'string' ? contact.address : null,
-        city: null,
-        district: null,
-        email: typeof contact?.email === 'string' ? contact.email : null,
-        footerDescription: typeof settings.footerText === 'string' ? settings.footerText : null,
-        keywords: [],
-        mapEmbed: null,
-        phone: typeof contact?.phone === 'string' ? contact.phone : null,
-        phone2: null,
-        siteDescription:
-          typeof site.description === 'string'
-            ? site.description
-            : typeof settings.tagline === 'string'
-              ? settings.tagline
-              : null,
-        siteTitle:
-          typeof settings.siteTitle === 'string'
-            ? settings.siteTitle
-            : homepage?.metaTitle || site.name || slug,
-        socialMedia: mapSocialLinks(settings.socialLinks),
-        whatsapp: null,
-        workingHours: null,
-      },
-    }
-  } catch (error) {
-    console.error('getDashboardSiteData error:', error)
-    return null
+  for (const value of fromSettings) {
+    candidates.add(slugifyValue(value))
   }
+
+  if (site.name) {
+    candidates.add(slugifyValue(site.name))
+  }
+
+  return Array.from(candidates)
 }
 
-// ── Main: getSiteData ──────────────────────────────────────────
-
-export async function getSiteData(slug: string): Promise<SiteData | null> {
-  const dashboardData = await getDashboardSiteData(slug)
-  if (dashboardData) return dashboardData
-
-  try {
-    const { getPayloadInstance } = await import('@/lib/payload')
-    const payload = await getPayloadInstance()
-
-    const projects = await payload.find({
-      collection: 'projects',
-      where: {
-        slug: { equals: slug },
-      },
-      limit: 1,
-      depth: 2,
-    })
-
-    if (projects.docs.length === 0) return null
-    const project = projects.docs[0] as Project
-
-    // Fetch pages with blocks
-    const pagesResult = await payload.find({
-      collection: 'pages',
-      where: {
-        project: { equals: project.id },
-      },
-      depth: 2,
-    })
-
-    // Map pages to SitePageData
-    const pages: SitePageData[] = pagesResult.docs.map((page: Page) => ({
-      slug: page.slug,
-      title: page.title,
-      metaTitle: page.metaTitle || null,
-      metaDescription: page.metaDescription || null,
-      keywords: page.keywords || [],
-      blocks: (page.content || []) as PageBlock[],
-    }))
-
-    // Backward-compatible contents map
-    const contents: SiteData['contents'] = {}
-    for (const page of pagesResult.docs) {
-      const p = page as Page
-      const mainContent = p.content?.find(b => b.blockType === 'content') as
-        | { text?: unknown }
-        | undefined
-
-      contents[p.slug.toUpperCase().replace('/', '') || 'HOMEPAGE'] = {
-        title: p.title,
-        content: (mainContent?.text as string) || '',
-        metaTitle: p.metaTitle || p.title,
-        metaDescription: p.metaDescription || '',
-      }
+function selectSiteBySlug(items: PanelSite[], slug: string): PanelSite | null {
+  const normalizedSlug = slugifyValue(slug)
+  for (const site of items) {
+    const candidates = deriveSiteSlugCandidates(site)
+    if (candidates.some((candidate) => slugifyValue(candidate) === normalizedSlug)) {
+      return site
     }
+  }
+  return null
+}
 
-    // Fetch linked services
-    const services: SiteServiceData[] = []
-    const projectServices = project.services
-    if (Array.isArray(projectServices) && projectServices.length > 0) {
-      const serviceIds = projectServices.map(s =>
-        typeof s === 'number' ? s : (s as Service).id
-      )
-      const servicesResult = await payload.find({
-        collection: 'services',
-        where: { id: { in: serviceIds } },
-        limit: 50,
-      })
-      for (const svc of servicesResult.docs) {
-        const s = svc as Service
-        services.push({
-          id: s.id,
-          name: s.name,
-          slug: s.slug,
-          shortDescription: s.shortDescription,
+async function resolvePageBlocks(page: PanelPage): Promise<PageBlock[]> {
+  const fromPage = normalizeBlocks((page as Record<string, unknown>).blocks)
+  if (fromPage.length > 0) return fromPage
+
+  const fromContent = normalizeBlocks((page as Record<string, unknown>).content)
+  if (fromContent.length > 0) return fromContent
+
+  const revisionId =
+    page.published_revision_id ||
+    page.staging_revision_id ||
+    page.draft_revision_id ||
+    null
+
+  if (!revisionId) return []
+
+  const revisionsResponse = await listPanelPageRevisions(page.id).catch(() => null)
+  if (revisionsResponse) {
+    const found = revisionsResponse.items.find((revision) => revision.id === revisionId)
+    if (found) {
+      const fromRevision = normalizeBlocks((found as PanelRevision).blocks)
+      if (fromRevision.length > 0) return fromRevision
+    }
+  }
+
+  const revision = await getPanelPageRevision(page.id, revisionId).catch(() => null)
+  if (!revision) return []
+
+  return normalizeBlocks(revision.blocks)
+}
+
+function buildServicesFromBlocks(pages: SitePageData[]): SiteServiceData[] {
+  const map = new Map<string, SiteServiceData>()
+  for (const page of pages) {
+    for (const block of page.blocks) {
+      if (block.blockType !== 'services') continue
+      const items = Array.isArray(block.items) ? block.items : []
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const title = (item as { title?: unknown }).title
+        if (typeof title !== 'string' || !title.trim()) continue
+        const key = slugifyValue(title)
+        if (!key || map.has(key)) continue
+        map.set(key, {
+          id: key,
+          name: title,
+          slug: key,
+          shortDescription:
+            typeof (item as { description?: unknown }).description === 'string'
+              ? ((item as { description?: string }).description as string)
+              : '',
         })
       }
     }
+  }
+  return Array.from(map.values())
+}
+
+function parseContactSettings(value: unknown): ContactModuleSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value as ContactModuleSettings
+}
+
+function computeSiteTitle(site: PanelSite): string {
+  const defaults = site.settings?.seo_defaults
+  if (defaults?.title_suffix) {
+    return `${site.name}${defaults.title_suffix}`
+  }
+  return site.name
+}
+
+export async function getSiteData(siteSlug: string): Promise<SiteData | null> {
+  try {
+    const sitesResponse = await listPanelSites()
+    const matchedSite = selectSiteBySlug(sitesResponse.items, siteSlug)
+    if (!matchedSite) return null
+
+    const site = await getPanelSiteById(matchedSite.id).catch(() => matchedSite)
+    const [pagesResponse, modulesResponse] = await Promise.all([
+      listPanelPages(site.id),
+      listPanelModules(site.id).catch(() => ({ items: [], total: 0 })),
+    ])
+
+    const allPages = pagesResponse.items
+      .filter((page) => !page.deleted_at)
+      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+
+    const publishedPages = allPages.filter((page) => page.status === 'published')
+    const selectedPages = publishedPages.length > 0 ? publishedPages : allPages
+
+    const pages: SitePageData[] = await Promise.all(
+      selectedPages.map(async (page) => {
+        const blocks = await resolvePageBlocks(page)
+        return {
+          slug: normalizeSlug(page.slug),
+          title: page.title,
+          metaTitle: page.seo?.title || null,
+          metaDescription: page.seo?.description || null,
+          keywords: normalizeKeywords(page.seo?.keywords),
+          blocks,
+        }
+      })
+    )
+
+    const contents: SiteData['contents'] = {}
+    for (const page of pages) {
+      contents[slugToContentKey(page.slug)] = {
+        title: page.title,
+        content: extractMainContent(page.blocks),
+        metaTitle: page.metaTitle,
+        metaDescription: page.metaDescription,
+      }
+    }
+
+    const contactModule = modulesResponse.items.find(
+      (module) => module.module_key === 'contact' && module.enabled
+    )
+    const contactSettings = parseContactSettings(contactModule?.settings)
+    const socialMedia =
+      contactSettings.social_media && Object.keys(contactSettings.social_media).length > 0
+        ? {
+            facebook: contactSettings.social_media.facebook,
+            instagram: contactSettings.social_media.instagram,
+            linkedin: contactSettings.social_media.linkedin,
+            twitter: contactSettings.social_media.twitter,
+            youtube: contactSettings.social_media.youtube,
+          }
+        : null
+
+    const keywords = normalizeKeywords(site.settings?.seo_defaults?.keywords)
+
+    const derivedServices = buildServicesFromBlocks(pages)
+    const resolvedThemeId = normalizeSiteThemeId(
+      typeof site.settings?.theme === 'string' ? site.settings.theme : undefined
+    )
+    const resolvedTheme = getSiteTheme(resolvedThemeId)
+    const projectDescription =
+      typeof site.settings?.seo_defaults?.description === 'string'
+        ? site.settings.seo_defaults.description
+        : null
 
     return {
       project: {
-        id: project.id,
-        name: project.name,
-        slug: project.slug,
-        description: project.description || null,
-        industry: project.company?.sector || null,
+        id: site.id,
+        name: site.name,
+        slug: siteSlug,
+        description: projectDescription,
+        industry: 'OSGB',
       },
       company: {
-        id: project.id,
-        name: project.company?.name || project.name,
-        logoUrl: getMediaUrl(project.company?.logo),
+        id: site.id,
+        name: site.name,
+        logoUrl: site.settings?.logo_url || null,
       },
       settings: {
-        phone: project.contact?.phone || null,
-        phone2: project.contact?.phone2 || null,
-        whatsapp: project.contact?.whatsapp || null,
-        email: project.contact?.email || null,
-        address: project.contact?.address || null,
-        city: project.contact?.city || null,
-        district: project.contact?.district || null,
-        workingHours: project.contact?.workingHours || null,
-        mapEmbed: project.contact?.mapEmbed || null,
-        socialMedia: {
-          facebook: project.social?.facebook || undefined,
-          instagram: project.social?.instagram || undefined,
-          linkedin: project.social?.linkedin || undefined,
-          twitter: project.social?.twitter || undefined,
-          youtube: project.social?.youtube || undefined,
-        },
-        siteTitle: project.seoTitle || project.name,
-        siteDescription: project.seoDescription || project.description || null,
-        keywords: project.seoKeywords || [],
-        footerDescription: project.footerDescription || null,
+        phone: Array.isArray(contactSettings.phones) ? contactSettings.phones[0] || null : null,
+        phone2: Array.isArray(contactSettings.phones) ? contactSettings.phones[1] || null : null,
+        whatsapp: null,
+        email: Array.isArray(contactSettings.emails) ? contactSettings.emails[0] || null : null,
+        address: contactSettings.address || null,
+        city: null,
+        district: null,
+        workingHours: contactSettings.working_hours || null,
+        mapEmbed: contactSettings.map_embed_url || null,
+        socialMedia,
+        siteTitle: computeSiteTitle(site),
+        siteDescription: projectDescription,
+        keywords,
+        footerDescription:
+          typeof site.settings?.footer_description === 'string'
+            ? site.settings.footer_description
+            : null,
       },
       design: {
-        primaryColor: project.design?.primaryColor || '#2563eb',
-        secondaryColor: project.design?.secondaryColor || '#1e40af',
-        accentColor: project.design?.accentColor || '#f59e0b',
-        backgroundColor: project.design?.backgroundColor || '#ffffff',
-        fontHeading: project.design?.fontHeading || 'Inter',
-        fontBody: project.design?.fontBody || 'Inter',
-        logoUrl: getMediaUrl(project.company?.logo),
-        faviconUrl: project.faviconUrl || null,
+        primaryColor: site.settings?.brand_color || resolvedTheme.tokens.primaryColor,
+        secondaryColor: site.settings?.secondary_color || resolvedTheme.tokens.secondaryColor,
+        accentColor: site.settings?.accent_color || resolvedTheme.tokens.accentColor,
+        backgroundColor:
+          typeof site.settings?.background_color === 'string'
+            ? site.settings.background_color
+            : resolvedTheme.tokens.backgroundColor,
+        theme: resolvedTheme.id,
+        fontHeading: site.settings?.font_heading || resolvedTheme.tokens.fontHeading,
+        fontBody: site.settings?.font_body || resolvedTheme.tokens.fontBody,
+        logoUrl: site.settings?.logo_url || null,
+        faviconUrl: site.settings?.favicon_url || null,
       },
       pages,
-      services,
+      services: derivedServices,
       contents,
     }
   } catch (error) {
-    console.error('getSiteData error (Payload):', error)
+    console.error('getSiteData error:', error)
     return null
   }
 }
 
-// ── Blog Functions (Payload) ───────────────────────────────────
-
-export async function getSiteBlogPosts(projectId: number | string, limit?: number) {
-  try {
-    const { getPayloadInstance } = await import('@/lib/payload')
-    const payload = await getPayloadInstance()
-
-    const result = await payload.find({
-      collection: 'blog-posts',
-      where: {
-        project: { equals: Number(projectId) },
-        status: { equals: 'published' },
-      },
-      sort: '-publishedAt',
-      limit: limit || 10,
-      depth: 1,
-    })
-
-    return result.docs as BlogPost[]
-  } catch (error) {
-    console.error('getSiteBlogPosts error:', error)
-    return []
-  }
+// `blog_posts` migrationi tamamlanana kadar blog verisi bos doner.
+export async function getSiteBlogPosts(
+  _projectId: string,
+  _limit?: number
+): Promise<SiteBlogPost[]> {
+  return []
 }
 
-export async function getSiteBlogPost(projectId: number | string, postSlug: string) {
-  try {
-    const { getPayloadInstance } = await import('@/lib/payload')
-    const payload = await getPayloadInstance()
-
-    const result = await payload.find({
-      collection: 'blog-posts',
-      where: {
-        project: { equals: Number(projectId) },
-        slug: { equals: postSlug },
-        status: { equals: 'published' },
-      },
-      limit: 1,
-      depth: 1,
-    })
-
-    return result.docs[0] as BlogPost | undefined
-  } catch (error) {
-    console.error('getSiteBlogPost error:', error)
-    return undefined
-  }
+export async function getSiteBlogPost(
+  _projectId: string,
+  _postSlug: string
+): Promise<SiteBlogPost | undefined> {
+  return undefined
 }
