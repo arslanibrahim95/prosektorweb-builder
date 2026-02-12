@@ -1,1 +1,98 @@
 @import "tailwindcss";
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+}
+
+/* Tailwind Typography plugin is not installed. Provide a minimal "prose"-like
+   baseline so generated OSGB sites don't look like plain text on white. */
+@layer components {
+  .richtext,
+  .prose {
+    @apply text-neutral-700 leading-relaxed;
+  }
+
+  .richtext.prose-lg,
+  .prose.prose-lg {
+    @apply text-[1.0625rem] leading-8;
+  }
+
+  .richtext h1,
+  .prose h1 {
+    @apply text-4xl font-bold text-neutral-900 mt-0 mb-6 leading-tight;
+  }
+
+  .richtext h2,
+  .prose h2 {
+    @apply text-3xl font-bold text-neutral-900 mt-10 mb-4 leading-snug;
+  }
+
+  .richtext h3,
+  .prose h3 {
+    @apply text-2xl font-semibold text-neutral-900 mt-8 mb-3 leading-snug;
+  }
+
+  .richtext h4,
+  .prose h4 {
+    @apply text-xl font-semibold text-neutral-900 mt-6 mb-2 leading-snug;
+  }
+
+  .richtext p,
+  .prose p {
+    @apply my-4;
+  }
+
+  .richtext a,
+  .prose a {
+    @apply underline underline-offset-4;
+    color: var(--color-primary, #2563eb);
+  }
+
+  .richtext ul,
+  .prose ul {
+    @apply my-4 list-disc pl-6;
+  }
+
+  .richtext ol,
+  .prose ol {
+    @apply my-4 list-decimal pl-6;
+  }
+
+  .richtext li,
+  .prose li {
+    @apply my-1;
+  }
+
+  .richtext blockquote,
+  .prose blockquote {
+    @apply my-6 border-l-4 pl-4 italic text-neutral-600;
+    border-color: color-mix(in srgb, var(--color-primary, #2563eb) 30%, transparent);
+  }
+
+  .richtext strong,
+  .prose strong {
+    @apply font-semibold text-neutral-900;
+  }
+
+  .richtext em,
+  .prose em {
+    @apply italic;
+  }
+
+  .richtext hr,
+  .prose hr {
+    @apply my-10 border-neutral-200;
+  }
+
+  .richtext > :first-child,
+  .prose > :first-child {
+    @apply mt-0;
+  }
+
+  .richtext > :last-child,
+  .prose > :last-child {
+    @apply mb-0;
+  }
+}

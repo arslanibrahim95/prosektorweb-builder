@@ -1,22 +1,26 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getSiteData, getSiteBlogPost, getSiteBlogPosts } from '@/features/sites/lib/site-data';
+import {
+  getSiteData,
+  getSiteBlogPost,
+  getSiteBlogPosts,
+  type SiteBlogPost,
+} from '@/features/sites/lib/site-data';
 import { Calendar, ArrowLeft, ArrowRight } from 'lucide-react';
-import type { BlogPost, Media } from '@/payload-types';
 
 interface BlogPostPageProps {
   params: Promise<{ siteSlug: string; postSlug: string }>;
 }
 
-function getMediaUrl(media: BlogPost['coverImage']): string | null {
+function getMediaUrl(media: SiteBlogPost['coverImage']): string | null {
   if (!media) return null;
   if (typeof media === 'object' && 'url' in media) {
-    return (media as Media).url || null;
+    return media.url || null;
   }
   return null;
 }
 
-function lexicalToParagraphs(content: BlogPost['content']): string[] {
+function lexicalToParagraphs(content: SiteBlogPost['content']): string[] {
   if (!content?.root?.children || !Array.isArray(content.root.children)) return [];
 
   const paragraphs: string[] = [];

@@ -31,6 +31,9 @@ export default async function IletisimPage({ params }: IletisimPageProps) {
 
   const { project, settings, pages } = siteData;
   const contactPageData = pages.find((p) => p.slug === '/iletisim');
+  const hasContactBlock = Boolean(
+    contactPageData?.blocks.some((block) => block.blockType === 'contact')
+  );
 
   return (
     <>
@@ -60,13 +63,15 @@ export default async function IletisimPage({ params }: IletisimPageProps) {
         </>
       )}
 
-      <ContactSection
-        siteId={String(siteData.project.id)}
-        phone={settings.phone}
-        email={settings.email}
-        address={settings.address}
-        mapEmbed={settings.mapEmbed}
-      />
+      {!hasContactBlock && (
+        <ContactSection
+          siteId={String(siteData.project.id)}
+          phone={settings.phone}
+          email={settings.email}
+          address={settings.address}
+          mapEmbed={settings.mapEmbed}
+        />
+      )}
     </>
   );
 }

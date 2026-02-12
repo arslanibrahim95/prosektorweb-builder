@@ -10,6 +10,16 @@ type Result = {
   error?: string
 }
 
+type DnsPropagationResult = {
+  propagated: boolean
+  error?: string
+}
+
+type SslStatusResult = {
+  status: 'active' | 'pending' | 'error'
+  error?: string
+}
+
 class CloudflareService {
   async verifyToken(): Promise<{ valid: boolean; error?: string }> {
     const hasToken = Boolean(process.env.CLOUDFLARE_API_TOKEN)
@@ -54,6 +64,17 @@ class CloudflareService {
     _serverIp: string
   ): Promise<Result> {
     return { success: true }
+  }
+
+  async verifyDnsPropagation(
+    _domain: string,
+    _expectedServerIp?: string
+  ): Promise<DnsPropagationResult> {
+    return { propagated: true }
+  }
+
+  async getSSLStatus(_domain: string): Promise<SslStatusResult> {
+    return { status: 'active' }
   }
 
   async createPreviewSubdomain(

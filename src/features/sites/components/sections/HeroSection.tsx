@@ -44,6 +44,26 @@ export function HeroSection({
   stats,
 }: HeroSectionProps) {
   const displayStats = stats && stats.length > 0 ? stats : defaultStats;
+  const statsCols = Math.min(displayStats.length, 4);
+  const statsGridColsClass =
+    statsCols === 1
+      ? 'grid-cols-1'
+      : statsCols === 2
+        ? 'grid-cols-2'
+        : statsCols === 3
+          ? 'grid-cols-3'
+          : 'grid-cols-4';
+
+  const basePath = `/${slug}`;
+  const resolvedCtaLink = (() => {
+    if (!ctaLink) return `${basePath}/iletisim`;
+    const raw = ctaLink.trim();
+    if (!raw) return `${basePath}/iletisim`;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith(basePath)) return raw;
+    if (raw.startsWith('/')) return `${basePath}${raw}`;
+    return `${basePath}/${raw.replace(/^\/+/, '')}`;
+  })();
 
   return (
     <section
@@ -74,7 +94,7 @@ export function HeroSection({
           </p>
           <div className="flex flex-wrap gap-4">
             <Link
-              href={ctaLink || `/${slug}/iletisim`}
+              href={resolvedCtaLink}
               className="inline-flex items-center gap-2 px-8 py-4 bg-white text-[var(--color-primary)] rounded-lg font-semibold hover:bg-neutral-100 transition-colors"
             >
               {ctaText || 'Ucretsiz Danismanlik'}
@@ -90,7 +110,7 @@ export function HeroSection({
         </div>
 
         {/* Stats */}
-        <div className={`grid grid-cols-${Math.min(displayStats.length, 4)} gap-8 mt-16 pt-16 border-t border-white/20`}>
+        <div className={`grid ${statsGridColsClass} gap-8 mt-16 pt-16 border-t border-white/20`}>
           {displayStats.map((stat, index) => {
             const Icon = getStatIcon(stat.icon);
             return (

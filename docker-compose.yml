@@ -1,0 +1,47 @@
+name: prosektorweb
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: prosektorweb-builder:latest
+    container_name: prosektorweb-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    expose:
+      - "3001"
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2.8
+    container_name: prosektorweb-caddy
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DASHBOARD_HOST: ${DASHBOARD_HOST:-dashboard.prosektorweb.com}
+      DEMO_HOST: ${DEMO_HOST:-demo.prosektorweb.com}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@prosektorweb.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

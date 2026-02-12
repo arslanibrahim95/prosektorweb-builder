@@ -5,6 +5,7 @@ import { HeroSection } from './sections/HeroSection'
 import { ServicesSection } from './sections/ServicesSection'
 import { AboutSection } from './sections/AboutSection'
 import { CTASection } from './sections/CTASection'
+import { ContactSection } from './sections/ContactSection'
 import { FAQSection } from './sections/FAQSection'
 import { TeamSection } from './sections/TeamSection'
 import { StatsSection } from './sections/StatsSection'
@@ -388,11 +389,78 @@ function renderEditorialBlock(block: PageBlock, slug: string, siteData: SiteData
   }
 }
 
+function normalizeBlockVariant(value: unknown): string {
+  if (typeof value !== 'string') return 'default'
+  const normalized = value.trim().toLowerCase()
+  return normalized || 'default'
+}
+
 function renderDefaultBlock(block: PageBlock, slug: string, siteData: SiteData) {
   const { company, settings } = siteData
+  const variant = normalizeBlockVariant(block.variant)
 
   switch (block.blockType) {
-    case 'hero':
+    case 'hero': {
+      if (variant === 'compact') {
+        return (
+          <section className="bg-white py-16">
+            <div className="container mx-auto px-4">
+              <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-slate-50 px-6 py-10">
+                <h1 className="text-3xl font-semibold text-slate-900 md:text-4xl">
+                  {typeof block.title === 'string' ? block.title : company.name}
+                </h1>
+                <p className="mt-4 text-slate-600">
+                  {typeof block.subtitle === 'string'
+                    ? block.subtitle
+                    : `${company.name} icin profesyonel OSGB operasyon hizmetleri.`}
+                </p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Link
+                    href={toCtaLink(slug, block.ctaLink)}
+                    className="rounded-lg bg-[var(--color-primary)] px-5 py-2.5 text-sm font-semibold text-white"
+                  >
+                    {typeof block.ctaText === 'string' ? block.ctaText : 'Teklif Al'}
+                  </Link>
+                  <Link
+                    href={`/${slug}/hizmetler`}
+                    className="rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-700"
+                  >
+                    Hizmetler
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </section>
+        )
+      }
+
+      if (variant === 'spotlight') {
+        return (
+          <section className="relative overflow-hidden bg-slate-950 py-20 text-slate-100">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.28),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(245,158,11,0.2),transparent_35%)]" />
+            <div className="container relative mx-auto px-4">
+              <div className="max-w-3xl">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">OSGB</p>
+                <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
+                  {typeof block.title === 'string' ? block.title : company.name}
+                </h1>
+                <p className="mt-5 text-lg text-slate-300">
+                  {typeof block.subtitle === 'string'
+                    ? block.subtitle
+                    : `${company.name} saha sureclerini tek noktadan yonetir.`}
+                </p>
+                <Link
+                  href={toCtaLink(slug, block.ctaLink)}
+                  className="mt-8 inline-flex rounded-lg bg-white px-6 py-3 text-sm font-semibold text-slate-900"
+                >
+                  {typeof block.ctaText === 'string' ? block.ctaText : 'Iletisime Gec'}
+                </Link>
+              </div>
+            </div>
+          </section>
+        )
+      }
+
       return (
         <HeroSection
           slug={slug}
@@ -404,8 +472,61 @@ function renderDefaultBlock(block: PageBlock, slug: string, siteData: SiteData) 
           stats={block.stats as Array<{ value: string; label: string; icon?: string }>}
         />
       )
+    }
 
-    case 'services':
+    case 'services': {
+      const services = Array.isArray(block.items)
+        ? block.items
+        : siteData.services.map((service) => ({ title: service.name, description: service.shortDescription }))
+
+      if (variant === 'list') {
+        return (
+          <section className="bg-white py-16">
+            <div className="container mx-auto px-4">
+              <h2 className="text-3xl font-semibold text-slate-900">
+                {typeof block.sectionTitle === 'string' ? block.sectionTitle : 'Hizmetlerimiz'}
+              </h2>
+              <div className="mt-8 divide-y divide-slate-200 rounded-xl border border-slate-200">
+                {services.map((item, index) => {
+                  const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+                  const title = typeof record.title === 'string' ? record.title : `Hizmet ${index + 1}`
+                  const description = typeof record.description === 'string' ? record.description : ''
+                  return (
+                    <article key={`${title}-${index}`} className="px-5 py-4">
+                      <h3 className="font-semibold text-slate-900">{title}</h3>
+                      {description && <p className="mt-2 text-sm text-slate-600">{description}</p>}
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
+          </section>
+        )
+      }
+
+      if (variant === 'compact') {
+        return (
+          <section className="bg-neutral-50 py-14">
+            <div className="container mx-auto px-4">
+              <h2 className="text-2xl font-semibold text-slate-900">
+                {typeof block.sectionTitle === 'string' ? block.sectionTitle : 'Hizmetlerimiz'}
+              </h2>
+              <div className="mt-6 grid gap-3 md:grid-cols-2">
+                {services.map((item, index) => {
+                  const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+                  const title = typeof record.title === 'string' ? record.title : `Hizmet ${index + 1}`
+                  return (
+                    <div key={`${title}-${index}`} className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+                      {title}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </section>
+        )
+      }
+
       return (
         <ServicesSection
           slug={slug}
@@ -419,8 +540,32 @@ function renderDefaultBlock(block: PageBlock, slug: string, siteData: SiteData) 
           }>}
         />
       )
+    }
 
-    case 'about':
+    case 'about': {
+      if (variant === 'card') {
+        return (
+          <section className="bg-white py-16">
+            <div className="container mx-auto px-4">
+              <article className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-slate-50 p-6">
+                <h2 className="text-2xl font-semibold text-slate-900">
+                  {typeof block.title === 'string' ? block.title : `${company.name} Hakkinda`}
+                </h2>
+                {block.description ? (
+                  <div className="mt-4">
+                    <RichText content={block.description} className="prose max-w-none text-slate-700" />
+                  </div>
+                ) : (
+                  <p className="mt-4 text-slate-600">
+                    {company.name} uzman kadrosuyla is sagligi ve guvenligi operasyonlarini sistematik bicimde yonetir.
+                  </p>
+                )}
+              </article>
+            </div>
+          </section>
+        )
+      }
+
       return (
         <AboutSection
           companyName={company.name}
@@ -430,8 +575,32 @@ function renderDefaultBlock(block: PageBlock, slug: string, siteData: SiteData) 
           experienceYears={block.experienceYears as number}
         />
       )
+    }
 
-    case 'cta':
+    case 'cta': {
+      if (variant === 'minimal') {
+        return (
+          <section className="bg-neutral-50 py-14">
+            <div className="container mx-auto px-4">
+              <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-6 py-5">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">
+                    {typeof block.title === 'string' ? block.title : 'Iletisime Gecin'}
+                  </h2>
+                  {typeof block.subtitle === 'string' && <p className="mt-1 text-sm text-slate-600">{block.subtitle}</p>}
+                </div>
+                <Link
+                  href={toCtaLink(slug, block.buttonLink || block.ctaLink)}
+                  className="rounded-lg bg-[var(--color-primary)] px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  {typeof block.buttonText === 'string' ? block.buttonText : 'Teklif Al'}
+                </Link>
+              </div>
+            </div>
+          </section>
+        )
+      }
+
       return (
         <CTASection
           slug={slug}
@@ -439,6 +608,29 @@ function renderDefaultBlock(block: PageBlock, slug: string, siteData: SiteData) 
           title={block.title as string}
           subtitle={block.subtitle as string}
           buttonText={block.buttonText as string}
+        />
+      )
+    }
+
+    case 'contact':
+      return (
+        <ContactSection
+          siteId={String(siteData.project.id)}
+          phone={settings.phone}
+          email={settings.email}
+          address={settings.address}
+          mapEmbed={settings.mapEmbed}
+          title={typeof block.title === 'string' ? block.title : undefined}
+          subtitle={typeof block.subtitle === 'string' ? block.subtitle : undefined}
+          showMap={
+            typeof block.showMap === 'boolean'
+              ? block.showMap
+              : typeof block.hideMap === 'boolean'
+                ? !block.hideMap
+                : variant === 'compact'
+                  ? false
+                  : undefined
+          }
         />
       )
 

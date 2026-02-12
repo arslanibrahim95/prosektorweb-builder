@@ -80,6 +80,16 @@ const ctaBlock: Block = {
     ],
 }
 
+const contactBlock: Block = {
+    slug: 'contact',
+    labels: { singular: 'Iletisim', plural: 'Iletisim Bloklari' },
+    fields: [
+        { name: 'title', type: 'text', label: 'Baslik' },
+        { name: 'subtitle', type: 'textarea', label: 'Alt Baslik' },
+        { name: 'showMap', type: 'checkbox', label: 'Haritayi Goster', defaultValue: true },
+    ],
+}
+
 const faqBlock: Block = {
     slug: 'faq',
     labels: { singular: 'SSS', plural: 'SSS Bloklari' },
@@ -243,6 +253,7 @@ export const Pages: CollectionConfig = {
                 servicesBlock,
                 aboutBlock,
                 ctaBlock,
+                contactBlock,
                 faqBlock,
                 teamBlock,
                 statsBlock,

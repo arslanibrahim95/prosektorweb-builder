@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Providers } from './providers'
 
 export const metadata: Metadata = {
-    title: "ProSektor Builder - AI Website Generator",
-    description: "AI destekli web sitesi oluşturma platformu",
+    title: "OSGB Site Engine",
+    description: "OSGB sitelerini render eden ve publish webhook alan servis",
 };
 
 export default function RootLayout({
@@ -15,7 +14,7 @@ export default function RootLayout({
     return (
         <html lang="tr">
             <body>
-                <Providers>{children}</Providers>
+                {children}
             </body>
         </html>
     );

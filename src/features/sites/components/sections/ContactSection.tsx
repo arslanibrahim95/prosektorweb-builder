@@ -4,14 +4,26 @@ import { useState } from 'react';
 import { Phone, Mail, MapPin, Send, Loader2 } from 'lucide-react';
 
 interface ContactSectionProps {
-  projectId: string; // Added validation for backend submission
+  siteId: string;
   phone: string | null;
   email: string | null;
   address: string | null;
   mapEmbed: string | null;
+  title?: string;
+  subtitle?: string;
+  showMap?: boolean;
 }
 
-export function ContactSection({ projectId, phone, email, address, mapEmbed }: ContactSectionProps) {
+export function ContactSection({
+  siteId,
+  phone,
+  email,
+  address,
+  mapEmbed,
+  title,
+  subtitle,
+  showMap,
+}: ContactSectionProps) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -26,23 +38,25 @@ export function ContactSection({ projectId, phone, email, address, mapEmbed }: C
     setSubmitting(true);
 
     try {
-      const res = await fetch('/api/contact', {
+      const res = await fetch('/api/public/contact/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId,
-          name: formData.name,
+          site_id: siteId,
+          full_name: formData.name,
           email: formData.email,
           phone: formData.phone,
           message: formData.message,
           subject: 'Website İletişim Formu',
+          kvkk_consent: true,
+          honeypot: '',
         }),
       });
 
       const data = await res.json();
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Mesaj gönderilemedi');
+      if (!res.ok || data?.ok === false || data?.success === false) {
+        throw new Error(data?.message || data?.error || 'Mesaj gönderilemedi');
       }
 
       setSubmitted(true);
@@ -60,10 +74,10 @@ export function ContactSection({ projectId, phone, email, address, mapEmbed }: C
       <div className="container mx-auto px-4">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-neutral-900 mb-4">
-            Bizimle Iletisime Gecin
+            {title || 'Bizimle Iletisime Gecin'}
           </h2>
           <p className="text-lg text-neutral-600">
-            Sorulariniz icin bize ulasin, en kisa surede donelim
+            {subtitle || 'Sorulariniz icin bize ulasin, en kisa surede donelim'}
           </p>
         </div>
 
@@ -201,7 +215,7 @@ export function ContactSection({ projectId, phone, email, address, mapEmbed }: C
               )}
             </div>
 
-            {mapEmbed && (
+            {showMap !== false && mapEmbed && (
               <div
                 className="rounded-2xl overflow-hidden h-64"
                 dangerouslySetInnerHTML={{ __html: mapEmbed }}

@@ -1,39 +1,36 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server'
+import {
+  submitContactForm,
+  toPanelErrorResponse,
+} from '@/features/site-engine/lib/public-form-proxy'
 
 export async function POST(request: Request) {
-    try {
-        const body = await request.json();
-        const { projectId, name, email, phone, subject, message } = body;
+  try {
+    const body = await request.json()
 
-        if (!projectId || !name || !email || !message) {
-            return NextResponse.json(
-                { success: false, error: 'Zorunlu alanlar eksik' },
-                { status: 400 }
-            );
-        }
+    const response = await submitContactForm({
+      site_id: body.site_id || body.siteId || body.projectId,
+      site_token: body.site_token || body.siteToken,
+      full_name: body.full_name || body.fullName || body.name,
+      email: body.email,
+      phone: body.phone || '',
+      subject: body.subject || '',
+      message: body.message,
+      kvkk_consent: body.kvkk_consent ?? body.kvkkConsent ?? true,
+      honeypot: body.honeypot || '',
+    })
 
-        const { getPayloadInstance } = await import('@/lib/payload');
-        const payload = await getPayloadInstance();
-
-        await payload.create({
-            collection: 'contact-submissions',
-            data: {
-                name,
-                email,
-                phone: phone || '',
-                subject: subject || '',
-                message,
-                project: projectId,
-                status: 'unread',
-            },
-        });
-
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        console.error('Contact submission error:', error);
-        return NextResponse.json(
-            { success: false, error: 'Mesaj gönderilemedi' },
-            { status: 500 }
-        );
-    }
+    return NextResponse.json({ success: true, data: response })
+  } catch (error) {
+    const normalized = toPanelErrorResponse(error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: normalized.body.message,
+        code: normalized.body.code,
+        details: normalized.body.details,
+      },
+      { status: normalized.status }
+    )
+  }
 }

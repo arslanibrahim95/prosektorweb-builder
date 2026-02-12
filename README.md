@@ -64,6 +64,34 @@ DEMO_REPLAY_REDIS_REST_TOKEN="<redis-rest-token>"
 DEMO_REPLAY_REDIS_KEY_PREFIX="demo:publish:replay"
 ```
 
+## Panelden UI Yonetimi
+
+Panel `site.settings` alanindan nav ve yerlesim linkleri de yonetilebilir.
+
+Desteklenen anahtarlar:
+- `navigation_links` / `navigationLinks` / `nav_links`: Header menu link listesi
+- `footer_links` / `footerLinks`: Footer hizli link listesi
+- `header_cta_label` / `headerCtaLabel`: Header CTA metni
+- `header_cta_href` / `headerCtaHref`: Header CTA hedefi
+
+Link ogesi formati:
+
+```json
+{
+  "label": "Hizmetler",
+  "href": "/hizmetler"
+}
+```
+
+Notlar:
+- `href: ""` veya `href: "/"` ana sayfayi temsil eder.
+- `https://...` degerleri dis link olarak oldugu gibi kullanilir.
+- Footer linkleri verilmezse header linkleri fallback olarak kullanilir.
+
+Detayli panel duzenleme dokumani:
+- `docs/panel/site-settings-ui.md`
+- `docs/panel/backend-panel-integration.md`
+
 ## Publish Webhook Kontratı
 
 Endpoint: `POST /api/internal/publish` veya `POST /api/revalidate`

@@ -1,8 +1,10 @@
 import { CheckCircle } from 'lucide-react';
+import { RichText } from '@/features/sites/components/RichText'
 
 interface AboutSectionProps {
   companyName: string;
-  content?: string;
+  content?: unknown;
+  description?: unknown;
   title?: string;
   highlights?: string[];
   experienceYears?: number;
@@ -21,6 +23,7 @@ const defaultHighlights = [
 export function AboutSection({
   companyName,
   content,
+  description,
   title,
   highlights,
   experienceYears,
@@ -28,6 +31,7 @@ export function AboutSection({
 }: AboutSectionProps) {
   const displayHighlights = highlights && highlights.length > 0 ? highlights : defaultHighlights;
   const displayYears = experienceYears || 15;
+  const richText = typeof description !== 'undefined' ? description : content;
 
   return (
     <section className="py-20">
@@ -38,8 +42,8 @@ export function AboutSection({
               {title || `${companyName} Hakkinda`}
             </h2>
             <div className="prose prose-lg text-neutral-600">
-              {content ? (
-                <div dangerouslySetInnerHTML={{ __html: content }} />
+              {richText ? (
+                <RichText content={richText} />
               ) : (
                 <>
                   <p>

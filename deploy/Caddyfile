@@ -1,0 +1,8 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$DASHBOARD_HOST:dashboard.prosektorweb.com}, {$DEMO_HOST:demo.prosektorweb.com} {
+  encode zstd gzip
+  reverse_proxy app:3001
+}

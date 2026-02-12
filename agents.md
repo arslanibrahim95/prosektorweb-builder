@@ -1,16 +1,16 @@
-# AI Agents & Workflows
+# OSGB Pipeline Notes
 
 ## Overview
-This project utilizes AI agents to automate the generation and management of OSGB websites.
+This project focuses on generating and operating OSGB websites through a Dashboard + Demo pipeline.
 
-## Agents
-1.  **Site Builder Agent**: Scaffolds new sites based on user input.
-2.  **SEO Agent**: Generates optimized content using `osgb-services.ts` keyword data.
-3.  **Migration Agent**: Handles database schema updates.
+## Core Flows
+1.  **Project Flow**: create project -> generate default pages -> publish.
+2.  **Portal Flow**: blog/media/design/settings updates via authenticated API.
+3.  **Deployment Flow**: dashboard publish webhook -> demo warmup/revalidate.
 
 ## Workflows
-- **Content Generation**: Triggered via `npm run generate-content`.
-- **Deployment**: Managed via Vercel/Docker (see `deployment_guide.md`).
+- **Pipeline Verify**: `npm run ci:verify`
+- **Deployment**: Docker + Caddy (`docker-compose.yml`, `deploy/Caddyfile`)
 
 ## Payload + Puck Integration Task Template
 Use this template when assigning work to an agent for dashboard (`Payload + Puck`) compatibility:

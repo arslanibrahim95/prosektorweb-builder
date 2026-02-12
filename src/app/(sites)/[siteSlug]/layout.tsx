@@ -84,6 +84,9 @@ export default async function SiteLayout({ children, params }: SiteLayoutProps) 
           phone={settings.phone}
           email={settings.email}
           themeId={design.theme}
+          navigationLinks={settings.navigationLinks}
+          ctaLabel={settings.headerCtaLabel}
+          ctaHref={settings.headerCtaHref}
         />
 
         <main>{children}</main>
@@ -98,6 +101,7 @@ export default async function SiteLayout({ children, params }: SiteLayoutProps) 
           socialMedia={settings.socialMedia}
           dynamicServices={services}
           footerDescription={settings.footerDescription}
+          quickLinks={settings.footerLinks}
           themeId={design.theme}
         />
       </div>

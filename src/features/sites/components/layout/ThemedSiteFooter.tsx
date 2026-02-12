@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Clock, Mail, MapPin, Phone } from 'lucide-react'
+import type { SiteNavigationLink } from '@/features/sites/lib/site-data'
 import { normalizeSiteThemeId } from '@/features/sites/themes/types'
 
 interface ThemedSiteFooterProps {
@@ -17,10 +18,11 @@ interface ThemedSiteFooterProps {
   } | null
   dynamicServices?: Array<{ name: string }>
   footerDescription?: string | null
+  quickLinks?: SiteNavigationLink[]
   themeId: string
 }
 
-const quickLinks = [
+const DEFAULT_QUICK_LINKS: SiteNavigationLink[] = [
   { href: '', label: 'Ana Sayfa' },
   { href: '/hakkimizda', label: 'Hakkimizda' },
   { href: '/hizmetler', label: 'Hizmetler' },
@@ -35,6 +37,29 @@ const fallbackServices = [
   'ISG Egitimleri',
 ]
 
+function resolveQuickLinks(quickLinks?: SiteNavigationLink[]): SiteNavigationLink[] {
+  if (!Array.isArray(quickLinks) || quickLinks.length === 0) {
+    return DEFAULT_QUICK_LINKS
+  }
+  return quickLinks
+}
+
+function toRouteHref(basePath: string, href: string): string {
+  const raw = href.trim()
+  if (!raw || raw === '/') return basePath
+  if (
+    raw.startsWith('http://') ||
+    raw.startsWith('https://') ||
+    raw.startsWith('mailto:') ||
+    raw.startsWith('tel:')
+  ) {
+    return raw
+  }
+  if (raw.startsWith('#')) return `${basePath}${raw}`
+  if (raw.startsWith('/')) return `${basePath}${raw}`
+  return `${basePath}/${raw.replace(/^\/+/, '')}`
+}
+
 function CorporateFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
   const {
     slug,
@@ -45,9 +70,11 @@ function CorporateFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
     workingHours,
     dynamicServices,
     footerDescription,
+    quickLinks,
   } = props
   const basePath = `/${slug}`
   const year = new Date().getFullYear()
+  const links = resolveQuickLinks(quickLinks)
 
   return (
     <footer className="border-t border-slate-200 bg-[#0f172a] text-slate-300">
@@ -63,9 +90,9 @@ function CorporateFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
         <div>
           <h4 className="mb-3 font-semibold text-white">Baglantilar</h4>
           <ul className="space-y-2 text-sm">
-            {quickLinks.map((link) => (
-              <li key={link.href}>
-                <Link href={`${basePath}${link.href}`} className="hover:text-white">
+            {links.map((link, index) => (
+              <li key={`${link.href}-${index}`}>
+                <Link href={toRouteHref(basePath, link.href)} className="hover:text-white">
                   {link.label}
                 </Link>
               </li>
@@ -136,9 +163,11 @@ function IndustrialFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
     address,
     dynamicServices,
     footerDescription,
+    quickLinks,
   } = props
   const basePath = `/${slug}`
   const year = new Date().getFullYear()
+  const links = resolveQuickLinks(quickLinks)
 
   const services =
     dynamicServices && dynamicServices.length > 0
@@ -159,9 +188,9 @@ function IndustrialFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
           <article className="rounded-xl border border-white/10 bg-white/5 p-5">
             <h4 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-100">Kisayollar</h4>
             <ul className="space-y-2 text-sm">
-              {quickLinks.map((link) => (
-                <li key={link.href}>
-                  <Link href={`${basePath}${link.href}`} className="hover:text-white">
+              {links.map((link, index) => (
+                <li key={`${link.href}-${index}`}>
+                  <Link href={toRouteHref(basePath, link.href)} className="hover:text-white">
                     {link.label}
                   </Link>
                 </li>
@@ -201,9 +230,10 @@ function IndustrialFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
 }
 
 function EditorialFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
-  const { slug, companyName, phone, email, address, dynamicServices, footerDescription } = props
+  const { slug, companyName, phone, email, address, dynamicServices, footerDescription, quickLinks } = props
   const basePath = `/${slug}`
   const year = new Date().getFullYear()
+  const links = resolveQuickLinks(quickLinks)
 
   return (
     <footer className="mt-14 border-t border-slate-200 bg-[#fdfcf8] text-slate-700">
@@ -228,9 +258,9 @@ function EditorialFooter(props: Omit<ThemedSiteFooterProps, 'themeId'>) {
 
         <div className="mt-8 grid gap-6 border-t border-slate-200 pt-8 md:grid-cols-2">
           <ul className="flex flex-wrap gap-3 text-sm">
-            {quickLinks.map((link) => (
-              <li key={link.href}>
-                <Link href={`${basePath}${link.href}`} className="hover:text-slate-900">
+            {links.map((link, index) => (
+              <li key={`${link.href}-${index}`}>
+                <Link href={toRouteHref(basePath, link.href)} className="hover:text-slate-900">
                   {link.label}
                 </Link>
               </li>

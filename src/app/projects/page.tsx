@@ -93,13 +93,21 @@ export default function ProjectsPage() {
               Dashboard veri modeline bagli projeleri yonet, otomatik sayfa uret ve yayinla.
             </p>
           </div>
-          <Link
-            href="/projects/new"
-            className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-900/40 transition hover:bg-cyan-400"
-          >
-            <Plus className="h-4 w-4" />
-            Yeni Proje
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/projects/docs"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-500 px-4 py-2.5 text-sm font-medium text-slate-100 hover:bg-slate-700/60"
+            >
+              Panel Docs
+            </Link>
+            <Link
+              href="/projects/new"
+              className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-900/40 transition hover:bg-cyan-400"
+            >
+              <Plus className="h-4 w-4" />
+              Yeni Proje
+            </Link>
+          </div>
         </div>
 
         {loading && (

@@ -1,10 +1,6 @@
-import type { Customer, User } from '@/payload-types'
+import type { User } from '@/payload-types'
 
-type RequestUser =
-  | (User & { collection: 'users' })
-  | (Customer & { collection: 'customers' })
-  | null
-  | undefined
+type RequestUser = (User & { collection: 'users' }) | null | undefined
 
 export function isUsersCollectionUser(
   user: RequestUser
@@ -12,6 +8,8 @@ export function isUsersCollectionUser(
   return Boolean(user && user.collection === 'users')
 }
 
-export function isAdminUser(user: RequestUser): user is User & { collection: 'users' } {
+export function isAdminUser(
+  user: RequestUser
+): user is User & { collection: 'users'; role: 'admin' } {
   return isUsersCollectionUser(user) && user.role === 'admin'
 }

@@ -31,6 +31,8 @@ import {
   mapTemplateToTheme,
   normalizeOsgbTemplateId,
 } from '@/features/projects/lib/osgb'
+import { getSiteTheme } from '@/features/sites/themes/registry'
+import { normalizeSiteThemeId } from '@/features/sites/themes/types'
 
 const projectCreateSchema = z.object({
   name: z.string().trim().min(3).max(120),
@@ -47,6 +49,47 @@ const projectCreateSchema = z.object({
     })
     .optional(),
 })
+
+const projectNavigationLinkSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  href: z.string().trim().min(1).max(400),
+})
+
+const projectThemeTokensSchema = z
+  .object({
+    primaryColor: z.string().trim().max(20).optional(),
+    secondaryColor: z.string().trim().max(20).optional(),
+    accentColor: z.string().trim().max(20).optional(),
+    backgroundColor: z.string().trim().max(20).optional(),
+    fontHeading: z.string().trim().max(120).optional(),
+    fontBody: z.string().trim().max(120).optional(),
+  })
+  .optional()
+
+const projectLayoutPageSchema = z.object({
+  sectionOrder: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  hiddenSections: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+})
+
+const projectLayoutConfigSchema = z
+  .object({
+    pages: z.record(projectLayoutPageSchema).optional(),
+  })
+  .optional()
+
+const projectSectionVariantsSchema = z.record(z.string().trim().min(1).max(40)).optional()
+
+const projectUiSettingsUpdateSchema = z
+  .object({
+    navigationLinks: z.array(projectNavigationLinkSchema).max(20).optional(),
+    footerLinks: z.array(projectNavigationLinkSchema).max(20).optional(),
+    headerCtaLabel: z.string().trim().max(80).nullable().optional(),
+    headerCtaHref: z.string().trim().max(400).nullable().optional(),
+    themeTokens: projectThemeTokensSchema,
+    layoutConfig: projectLayoutConfigSchema,
+    sectionVariants: projectSectionVariantsSchema,
+  })
+  .refine((value) => Object.keys(value).length > 0, 'En az bir UI ayari gonderilmelidir')
 
 const generationSchema = z.object({
   companyName: z.string().trim().min(2),
@@ -133,6 +176,7 @@ export interface ProjectDetail {
   domain: { id: string; name: string } | null
   pagesCount: number
   generatedContentsCount: number
+  uiSettings: ProjectUiSettings
 }
 
 export interface ProjectContactInfo {
@@ -141,6 +185,39 @@ export interface ProjectContactInfo {
   address: string | null
   city: string | null
   district: string | null
+}
+
+export interface ProjectNavigationLink {
+  label: string
+  href: string
+}
+
+export interface ProjectThemeTokens {
+  primaryColor: string
+  secondaryColor: string
+  accentColor: string
+  backgroundColor: string
+  fontHeading: string
+  fontBody: string
+}
+
+export interface ProjectPageLayoutConfig {
+  sectionOrder: string[]
+  hiddenSections: string[]
+}
+
+export interface ProjectLayoutConfig {
+  pages: Record<string, ProjectPageLayoutConfig>
+}
+
+export interface ProjectUiSettings {
+  navigationLinks: ProjectNavigationLink[]
+  footerLinks: ProjectNavigationLink[]
+  headerCtaLabel: string | null
+  headerCtaHref: string | null
+  themeTokens: ProjectThemeTokens
+  layoutConfig: ProjectLayoutConfig
+  sectionVariants: Record<string, string>
 }
 
 export interface ProjectEditorPage {
@@ -349,6 +426,443 @@ function parseContactFromSettings(settings: SiteSettingsRecord): ProjectContactI
   }
 }
 
+const PROJECT_NAV_LABEL_MAP: Record<string, string> = {
+  '/': 'Ana Sayfa',
+  '/hakkimizda': 'Hakkimizda',
+  '/hizmetler': 'Hizmetler',
+  '/blog': 'Blog',
+  '/iletisim': 'Iletisim',
+}
+
+const DEFAULT_PROJECT_NAV_LINKS: ProjectNavigationLink[] = [
+  { label: 'Ana Sayfa', href: '/' },
+  { label: 'Hakkimizda', href: '/hakkimizda' },
+  { label: 'Hizmetler', href: '/hizmetler' },
+  { label: 'Blog', href: '/blog' },
+  { label: 'Iletisim', href: '/iletisim' },
+]
+
+const DEFAULT_SECTION_ORDER = [
+  'hero',
+  'services',
+  'about',
+  'cta',
+  'contact',
+  'faq',
+  'team',
+  'stats',
+  'gallery',
+  'testimonials',
+  'content',
+]
+
+const KNOWN_PAGE_SLUGS = ['/', '/hakkimizda', '/hizmetler', '/iletisim', '/blog']
+const DEFAULT_SECTION_VARIANTS: Record<string, string> = {
+  hero: 'default',
+  services: 'cards',
+  about: 'default',
+  cta: 'banner',
+  contact: 'default',
+}
+
+const SECTION_VARIANT_OPTIONS: Record<string, string[]> = {
+  hero: ['default', 'spotlight', 'compact'],
+  services: ['cards', 'list', 'compact'],
+  about: ['default', 'card'],
+  cta: ['banner', 'minimal'],
+  contact: ['default', 'compact'],
+}
+
+const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
+function cloneNavigationLinks(links: ProjectNavigationLink[]): ProjectNavigationLink[] {
+  return links.map((link) => ({
+    label: link.label,
+    href: link.href,
+  }))
+}
+
+function cloneLayoutConfig(layoutConfig: ProjectLayoutConfig): ProjectLayoutConfig {
+  const pages = Object.entries(layoutConfig.pages).reduce<Record<string, ProjectPageLayoutConfig>>(
+    (acc, [slug, config]) => {
+      acc[slug] = {
+        sectionOrder: [...config.sectionOrder],
+        hiddenSections: [...config.hiddenSections],
+      }
+      return acc
+    },
+    {}
+  )
+
+  return { pages }
+}
+
+function normalizeHexColorToken(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return HEX_COLOR_REGEX.test(trimmed) ? trimmed.toLowerCase() : null
+}
+
+function normalizeFontToken(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.slice(0, 120)
+}
+
+function normalizeSectionType(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return null
+  return DEFAULT_SECTION_ORDER.includes(normalized) ? normalized : null
+}
+
+function normalizeSectionList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const item of value) {
+    const section = normalizeSectionType(item)
+    if (!section || seen.has(section)) continue
+    seen.add(section)
+    normalized.push(section)
+  }
+
+  return normalized
+}
+
+function normalizePageSlugForLayout(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (trimmed === '/' || trimmed === 'home' || trimmed === 'homepage') return '/'
+  if (trimmed.startsWith('/')) return `/${trimmed.replace(/^\/+/, '')}`.replace(/\/+$/, '')
+  return `/${trimmed.replace(/^\/+/, '')}`.replace(/\/+$/, '')
+}
+
+function isKnownPageSlug(slug: string): boolean {
+  return KNOWN_PAGE_SLUGS.includes(slug)
+}
+
+function getDefaultThemeTokens(settings: SiteSettingsRecord): ProjectThemeTokens {
+  const siteTheme = getSiteTheme(
+    normalizeSiteThemeId(
+      normalizeNullableString(
+        pickFirstSettingValue(settings, ['theme', 'theme_id', 'themeId', 'theme_name'])
+      )
+    )
+  )
+
+  return {
+    primaryColor: siteTheme.tokens.primaryColor,
+    secondaryColor: siteTheme.tokens.secondaryColor,
+    accentColor: siteTheme.tokens.accentColor,
+    backgroundColor: siteTheme.tokens.backgroundColor,
+    fontHeading: siteTheme.tokens.fontHeading,
+    fontBody: siteTheme.tokens.fontBody,
+  }
+}
+
+function normalizeThemeTokens(
+  value: unknown,
+  fallback: ProjectThemeTokens
+): ProjectThemeTokens {
+  const source =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+
+  return {
+    primaryColor:
+      normalizeHexColorToken(source?.primaryColor) ||
+      normalizeHexColorToken(source?.primary_color) ||
+      fallback.primaryColor,
+    secondaryColor:
+      normalizeHexColorToken(source?.secondaryColor) ||
+      normalizeHexColorToken(source?.secondary_color) ||
+      fallback.secondaryColor,
+    accentColor:
+      normalizeHexColorToken(source?.accentColor) ||
+      normalizeHexColorToken(source?.accent_color) ||
+      fallback.accentColor,
+    backgroundColor:
+      normalizeHexColorToken(source?.backgroundColor) ||
+      normalizeHexColorToken(source?.background_color) ||
+      fallback.backgroundColor,
+    fontHeading:
+      normalizeFontToken(source?.fontHeading) ||
+      normalizeFontToken(source?.font_heading) ||
+      fallback.fontHeading,
+    fontBody:
+      normalizeFontToken(source?.fontBody) ||
+      normalizeFontToken(source?.font_body) ||
+      fallback.fontBody,
+  }
+}
+
+function normalizePageLayoutConfig(value: unknown): ProjectPageLayoutConfig {
+  const source =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+
+  const sectionOrder = normalizeSectionList(source.sectionOrder || source.order)
+  const hiddenSections = normalizeSectionList(
+    source.hiddenSections || source.hidden || source.hidden_blocks
+  )
+
+  return {
+    sectionOrder: sectionOrder.length > 0 ? sectionOrder : [...DEFAULT_SECTION_ORDER],
+    hiddenSections,
+  }
+}
+
+function buildDefaultLayoutConfig(): ProjectLayoutConfig {
+  return {
+    pages: KNOWN_PAGE_SLUGS.reduce<Record<string, ProjectPageLayoutConfig>>((acc, slug) => {
+      acc[slug] = {
+        sectionOrder: [...DEFAULT_SECTION_ORDER],
+        hiddenSections: [],
+      }
+      return acc
+    }, {}),
+  }
+}
+
+function normalizeLayoutConfig(
+  value: unknown,
+  fallback: ProjectLayoutConfig
+): ProjectLayoutConfig {
+  const source =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+  const pageSource =
+    source?.pages && typeof source.pages === 'object' && !Array.isArray(source.pages)
+      ? (source.pages as Record<string, unknown>)
+      : null
+
+  const next = cloneLayoutConfig(fallback)
+  if (!pageSource) return next
+
+  for (const [rawSlug, rawConfig] of Object.entries(pageSource)) {
+    const slug = normalizePageSlugForLayout(rawSlug)
+    if (!slug || !isKnownPageSlug(slug)) continue
+    next.pages[slug] = normalizePageLayoutConfig(rawConfig)
+  }
+
+  return next
+}
+
+function normalizeSectionVariants(value: unknown, fallback: Record<string, string>): Record<string, string> {
+  const source =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+
+  const next: Record<string, string> = { ...fallback }
+  if (!source) return next
+
+  for (const [key, rawValue] of Object.entries(source)) {
+    const normalizedKey = normalizeSectionType(key)
+    if (!normalizedKey || typeof rawValue !== 'string') continue
+    const variant = rawValue.trim().toLowerCase()
+    if (!variant) continue
+
+    const allowed = SECTION_VARIANT_OPTIONS[normalizedKey]
+    if (Array.isArray(allowed) && allowed.includes(variant)) {
+      next[normalizedKey] = variant
+    }
+  }
+
+  return next
+}
+
+function pickFirstSettingValue(settings: SiteSettingsRecord, keys: string[]): unknown {
+  for (const key of keys) {
+    if (typeof settings[key] !== 'undefined') return settings[key]
+  }
+  return undefined
+}
+
+function normalizeProjectNavHref(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('mailto:') ||
+    trimmed.startsWith('tel:')
+  ) {
+    return trimmed
+  }
+
+  if (trimmed.startsWith('#')) return trimmed
+  if (trimmed === '/') return '/'
+  if (trimmed.startsWith('/')) return trimmed
+  return `/${trimmed.replace(/^\/+/, '')}`
+}
+
+function normalizeProjectNavLabel(href: string, value: unknown): string {
+  const explicit = normalizeNullableString(value)
+  if (explicit) return explicit
+
+  if (PROJECT_NAV_LABEL_MAP[href]) {
+    return PROJECT_NAV_LABEL_MAP[href]
+  }
+
+  const key = href.split('/').filter(Boolean).pop()
+  if (!key) return 'Sayfa'
+
+  return key
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function normalizeProjectNavLink(value: unknown): ProjectNavigationLink | null {
+  if (typeof value === 'string') {
+    const href = normalizeProjectNavHref(value)
+    if (!href) return null
+    return {
+      label: normalizeProjectNavLabel(href, undefined),
+      href,
+    }
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const href =
+    normalizeProjectNavHref(record.href) ||
+    normalizeProjectNavHref(record.path) ||
+    normalizeProjectNavHref(record.url) ||
+    normalizeProjectNavHref(record.slug)
+
+  if (!href) return null
+
+  return {
+    label: normalizeProjectNavLabel(href, record.label || record.title || record.name),
+    href,
+  }
+}
+
+function dedupeProjectNavLinks(links: ProjectNavigationLink[]): ProjectNavigationLink[] {
+  const seen = new Set<string>()
+  const deduped: ProjectNavigationLink[] = []
+
+  for (const link of links) {
+    const key = link.href.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(link)
+  }
+
+  return deduped
+}
+
+function normalizeProjectNavLinks(
+  value: unknown,
+  fallback: ProjectNavigationLink[]
+): ProjectNavigationLink[] {
+  if (!Array.isArray(value)) return cloneNavigationLinks(fallback)
+
+  const parsed = value
+    .map((entry) => normalizeProjectNavLink(entry))
+    .filter((entry): entry is ProjectNavigationLink => Boolean(entry))
+
+  if (parsed.length === 0) return cloneNavigationLinks(fallback)
+
+  return dedupeProjectNavLinks(parsed)
+}
+
+function parseProjectUiSettings(settings: SiteSettingsRecord): ProjectUiSettings {
+  const defaultLinks = cloneNavigationLinks(DEFAULT_PROJECT_NAV_LINKS)
+  const navigationLinks = normalizeProjectNavLinks(
+    pickFirstSettingValue(settings, [
+      'navigation_links',
+      'navigationLinks',
+      'nav_links',
+      'navLinks',
+      'header_links',
+      'menu_links',
+    ]),
+    defaultLinks
+  )
+
+  const footerLinks = normalizeProjectNavLinks(
+    pickFirstSettingValue(settings, [
+      'footer_links',
+      'footerLinks',
+      'footer_navigation_links',
+      'footerNavigationLinks',
+    ]),
+    navigationLinks
+  )
+
+  const headerCtaLabel = normalizeNullableString(
+    pickFirstSettingValue(settings, ['header_cta_label', 'headerCtaLabel', 'cta_label', 'ctaLabel'])
+  )
+
+  const headerCtaHref =
+    normalizeProjectNavHref(
+      pickFirstSettingValue(settings, ['header_cta_href', 'headerCtaHref', 'cta_href', 'ctaHref'])
+    ) || '/iletisim'
+
+  const fallbackThemeTokens = getDefaultThemeTokens(settings)
+  const themeTokens = normalizeThemeTokens(
+    pickFirstSettingValue(settings, ['theme_tokens', 'themeTokens']),
+    {
+      ...fallbackThemeTokens,
+      primaryColor:
+        normalizeHexColorToken(settings.brand_color) || fallbackThemeTokens.primaryColor,
+      secondaryColor:
+        normalizeHexColorToken(settings.secondary_color) || fallbackThemeTokens.secondaryColor,
+      accentColor: normalizeHexColorToken(settings.accent_color) || fallbackThemeTokens.accentColor,
+      backgroundColor:
+        normalizeHexColorToken(settings.background_color) || fallbackThemeTokens.backgroundColor,
+      fontHeading: normalizeFontToken(settings.font_heading) || fallbackThemeTokens.fontHeading,
+      fontBody: normalizeFontToken(settings.font_body) || fallbackThemeTokens.fontBody,
+    }
+  )
+
+  const layoutConfig = normalizeLayoutConfig(
+    pickFirstSettingValue(settings, ['layout_config', 'layoutConfig']),
+    buildDefaultLayoutConfig()
+  )
+
+  const sectionVariants = normalizeSectionVariants(
+    pickFirstSettingValue(settings, ['section_variants', 'sectionVariants']),
+    DEFAULT_SECTION_VARIANTS
+  )
+
+  return {
+    navigationLinks,
+    footerLinks,
+    headerCtaLabel,
+    headerCtaHref,
+    themeTokens,
+    layoutConfig,
+    sectionVariants,
+  }
+}
+
+function normalizeUiPatchLinks(links: ProjectNavigationLink[]): ProjectNavigationLink[] {
+  return links.map((link, index) => {
+    const label = link.label.trim()
+    const href = normalizeProjectNavHref(link.href)
+    if (!label) {
+      throw new Error(`Link etiketi bos olamaz (satir ${index + 1})`)
+    }
+    if (!href) {
+      throw new Error(`Link adresi gecersiz (satir ${index + 1})`)
+    }
+    return { label, href }
+  })
+}
+
 function mapSiteToProjectListItem(site: PanelSite): ProjectListItem {
   const settings = getSiteSettings(site)
   const template = normalizeNullableString(settings.template)
@@ -388,6 +902,7 @@ async function mapSiteToProjectDetail(site: PanelSite): Promise<ProjectDetail> {
     domain: site.primary_domain ? { id: site.id, name: site.primary_domain } : null,
     pagesCount: pages.items.length,
     generatedContentsCount: pages.items.length,
+    uiSettings: parseProjectUiSettings(settings),
   }
 }
 
@@ -867,6 +1382,107 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
   const site = await getPanelSiteById(id).catch(() => null)
   if (!site) return null
   return mapSiteToProjectDetail(site)
+}
+
+export async function updateProjectUiSettings(
+  projectId: string,
+  input: unknown
+): Promise<ProjectDetail> {
+  const payload = projectUiSettingsUpdateSchema.parse(input)
+  const site = await getPanelSiteById(projectId).catch(() => null)
+
+  if (!site) {
+    throw new Error('Proje bulunamadi')
+  }
+
+  const settings = getSiteSettings(site)
+  const currentUiSettings = parseProjectUiSettings(settings)
+
+  const navigationLinks =
+    typeof payload.navigationLinks !== 'undefined'
+      ? normalizeUiPatchLinks(payload.navigationLinks)
+      : currentUiSettings.navigationLinks
+
+  const footerLinks =
+    typeof payload.footerLinks !== 'undefined'
+      ? normalizeUiPatchLinks(payload.footerLinks)
+      : currentUiSettings.footerLinks
+
+  const headerCtaLabel =
+    typeof payload.headerCtaLabel === 'undefined'
+      ? currentUiSettings.headerCtaLabel
+      : normalizeNullableString(payload.headerCtaLabel)
+
+  const headerCtaHref =
+    typeof payload.headerCtaHref === 'undefined'
+      ? currentUiSettings.headerCtaHref
+      : normalizeProjectNavHref(payload.headerCtaHref)
+
+  const themeTokens =
+    typeof payload.themeTokens === 'undefined'
+      ? currentUiSettings.themeTokens
+      : normalizeThemeTokens(payload.themeTokens, currentUiSettings.themeTokens)
+
+  const layoutConfig =
+    typeof payload.layoutConfig === 'undefined'
+      ? currentUiSettings.layoutConfig
+      : normalizeLayoutConfig(payload.layoutConfig, currentUiSettings.layoutConfig)
+
+  const sectionVariants =
+    typeof payload.sectionVariants === 'undefined'
+      ? currentUiSettings.sectionVariants
+      : normalizeSectionVariants(payload.sectionVariants, currentUiSettings.sectionVariants)
+
+  const nextSettings: SiteSettingsRecord = {
+    ...settings,
+    navigation_links: navigationLinks,
+    footer_links: footerLinks,
+    theme_tokens: themeTokens,
+    layout_config: layoutConfig,
+    section_variants: sectionVariants,
+    brand_color: themeTokens.primaryColor,
+    secondary_color: themeTokens.secondaryColor,
+    accent_color: themeTokens.accentColor,
+    background_color: themeTokens.backgroundColor,
+    font_heading: themeTokens.fontHeading,
+    font_body: themeTokens.fontBody,
+  }
+
+  delete nextSettings.navigationLinks
+  delete nextSettings.nav_links
+  delete nextSettings.navLinks
+  delete nextSettings.header_links
+  delete nextSettings.menu_links
+  delete nextSettings.footerLinks
+  delete nextSettings.footer_navigation_links
+  delete nextSettings.footerNavigationLinks
+  delete nextSettings.headerCtaLabel
+  delete nextSettings.cta_label
+  delete nextSettings.ctaLabel
+  delete nextSettings.headerCtaHref
+  delete nextSettings.cta_href
+  delete nextSettings.ctaHref
+  delete nextSettings.themeTokens
+  delete nextSettings.layoutConfig
+  delete nextSettings.sectionVariants
+
+  if (headerCtaLabel) {
+    nextSettings.header_cta_label = headerCtaLabel
+  } else {
+    delete nextSettings.header_cta_label
+  }
+
+  if (headerCtaHref) {
+    nextSettings.header_cta_href = headerCtaHref
+  } else {
+    delete nextSettings.header_cta_href
+  }
+
+  const updatedSite = await updatePanelSite(projectId, {
+    settings: nextSettings,
+  })
+
+  return mapSiteToProjectDetail(updatedSite)
 }
 
 export async function listProjectPages(projectId: string): Promise<ProjectEditorPage[]> {

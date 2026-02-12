@@ -1,39 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server'
+import {
+  submitJobApplicationForm,
+  toPanelErrorResponse,
+} from '@/features/site-engine/lib/public-form-proxy'
 
 export async function POST(request: Request) {
-    try {
-        const body = await request.json();
-        const { projectId, fullName, email, phone, position, coverLetter } = body;
+  try {
+    const body = await request.json()
 
-        if (!projectId || !fullName || !email) {
-            return NextResponse.json(
-                { success: false, error: 'Zorunlu alanlar eksik' },
-                { status: 400 }
-            );
-        }
+    const response = await submitJobApplicationForm({
+      site_id: body.site_id || body.siteId || body.projectId,
+      site_token: body.site_token || body.siteToken,
+      full_name: body.full_name || body.fullName,
+      email: body.email,
+      phone: body.phone || '',
+      job_post_id: body.job_post_id || body.jobPostId,
+      position: body.position || '',
+      cover_letter: body.cover_letter || body.coverLetter || '',
+      kvkk_consent: body.kvkk_consent ?? body.kvkkConsent ?? true,
+      honeypot: body.honeypot || '',
+    })
 
-        const { getPayloadInstance } = await import('@/lib/payload');
-        const payload = await getPayloadInstance();
-
-        await payload.create({
-            collection: 'job-applications',
-            data: {
-                fullName,
-                email,
-                phone: phone || '',
-                position: position || '',
-                coverLetter: coverLetter || '',
-                project: projectId,
-                status: 'new',
-            },
-        });
-
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        console.error('Job application submission error:', error);
-        return NextResponse.json(
-            { success: false, error: 'Başvuru kaydedilemedi' },
-            { status: 500 }
-        );
-    }
+    return NextResponse.json({ success: true, data: response })
+  } catch (error) {
+    const normalized = toPanelErrorResponse(error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: normalized.body.message,
+        code: normalized.body.code,
+        details: normalized.body.details,
+      },
+      { status: normalized.status }
+    )
+  }
 }

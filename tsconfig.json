@@ -26,6 +26,9 @@
       "@/*": [
         "./src/*"
       ],
+      "@prosektor/contracts": [
+        "./src/contracts/index.ts"
+      ],
       "@payload-config": [
         "./src/payload.config.ts"
       ]
@@ -41,6 +44,7 @@
   "exclude": [
     "node_modules",
     ".next/dev",
+    "legacy/**",
     "src/features/projects/components/ProposalDocument.tsx",
     "src/features/projects/lib/pdf/**/*"
   ]
