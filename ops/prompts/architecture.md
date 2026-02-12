@@ -37,7 +37,7 @@ Return Markdown only. Use these sections exactly:
 
 # Constraints
 - Do not propose legacy folder code as active implementation.
-- Be concrete with endpoint names, payload fields, and file-level ownership.
+- Be concrete with endpoint names, bodyData fields, and file-level ownership.
 - Keep it implementation-ready; no open decisions.
 
 # Artifact Target (reference only)

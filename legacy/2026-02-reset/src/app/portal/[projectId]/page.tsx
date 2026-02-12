@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { getPayloadInstance } from '@/lib/payload';
+import { getDataInstance } from '@/lib/bodyData';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -20,7 +20,7 @@ interface DashboardPageProps {
 
 export default async function DashboardPage({ params }: DashboardPageProps) {
   const { projectId } = await params;
-  const payload = await getPayloadInstance();
+  const bodyData = await getDataInstance();
 
   const project = await prisma.webProject.findUnique({
     where: { id: projectId },
@@ -40,7 +40,7 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
   }
 
   // Fetch Site Stats
-  const { totalDocs: messageCount } = await payload.find({
+  const { totalDocs: messageCount } = await bodyData.find({
     collection: 'contact-submissions',
     where: {
       'project.id': { equals: projectId },
@@ -48,7 +48,7 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
     limit: 0,
   });
 
-  const { totalDocs: quoteCount } = await payload.find({
+  const { totalDocs: quoteCount } = await bodyData.find({
     collection: 'quote-requests',
     where: {
       'project.id': { equals: projectId },
@@ -56,7 +56,7 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
     limit: 0,
   });
 
-  const { docs: recentMessages } = await payload.find({
+  const { docs: recentMessages } = await bodyData.find({
     collection: 'contact-submissions',
     where: {
       'project.id': { equals: projectId },

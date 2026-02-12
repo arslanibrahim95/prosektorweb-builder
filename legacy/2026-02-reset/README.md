@@ -3,7 +3,7 @@
 Bu klasör, kod tabanını sadeleştirirken aktif geliştirmeden çıkarılan dosyaları içerir.
 
 Arşive alınan başlıca bölümler:
-- Eski panel/admin route'ları (`src/app/projects`, `src/app/portal`, `src/app/(payload)`)
+- Eski panel/admin route'ları (`src/app/projects`, `src/app/portal`, `src/app/(bodyData)`)
 - Panel odaklı API route'ları (`src/app/api/projects`, `src/app/api/portal`, `src/app/api/domains`)
 - Dashboard entegrasyon katmanı (`src/features/dashboard`)
 - Eski proje orchestration ve yardımcıları (`src/features/projects/actions`, `src/features/projects/components`, `src/features/projects/lib/*`)

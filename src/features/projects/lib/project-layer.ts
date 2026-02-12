@@ -244,12 +244,12 @@ export interface PublishProjectOptions {
 }
 
 function extractSingle<TSchema extends z.ZodTypeAny>(
-  payload: unknown,
+  bodyData: unknown,
   schema: TSchema
 ): z.output<TSchema> {
-  const candidates: unknown[] = [payload]
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
+  const candidates: unknown[] = [bodyData]
+  if (bodyData && typeof bodyData === 'object') {
+    const record = bodyData as Record<string, unknown>
     candidates.push(record.item, record.data, record.doc)
   }
 
@@ -262,16 +262,16 @@ function extractSingle<TSchema extends z.ZodTypeAny>(
 }
 
 function extractList<TSchema extends z.ZodTypeAny>(
-  payload: unknown,
+  bodyData: unknown,
   schema: TSchema
 ): Array<z.output<TSchema>> {
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
+  if (bodyData && typeof bodyData === 'object') {
+    const record = bodyData as Record<string, unknown>
     const direct = z
       .object({
         items: z.array(schema),
       })
-      .safeParse(payload)
+      .safeParse(bodyData)
 
     if (direct.success) return direct.data.items
 
@@ -282,8 +282,8 @@ function extractList<TSchema extends z.ZodTypeAny>(
     }
   }
 
-  if (Array.isArray(payload)) {
-    const parsed = z.array(schema).safeParse(payload)
+  if (Array.isArray(bodyData)) {
+    const parsed = z.array(schema).safeParse(bodyData)
     if (parsed.success) return parsed.data
   }
 
@@ -1067,23 +1067,23 @@ async function createPanelSite(input: {
     }),
   })
 
-  const payload = cleanUndefined({
+  const bodyData = cleanUndefined({
     name: input.name,
     primary_domain: null,
     settings,
   })
 
-  const createPayload = z
+  const createRequestBody = z
     .object({
       name: z.string(),
       primary_domain: z.string().nullable().optional(),
       settings: z.record(z.unknown()).optional(),
     })
-    .parse(payload)
+    .parse(bodyData)
 
   const raw = await requestPanel('/sites', {
     method: 'POST',
-    body: createPayload,
+    body: createRequestBody,
   })
 
   return extractSingle(raw, siteSchema)
@@ -1113,14 +1113,14 @@ async function updatePanelSite(siteId: string, patch: {
 }
 
 async function createPanelPage(input: z.input<typeof pageCreateSchema>): Promise<PanelPage> {
-  const payload = pageCreateSchema.parse({
+  const bodyData = pageCreateSchema.parse({
     ...input,
     slug: normalizePageSlug(input.slug),
   })
 
   const raw = await requestPanel('/pages', {
     method: 'POST',
-    body: payload,
+    body: bodyData,
   })
 
   return extractSingle(raw, pageSchema)
@@ -1130,14 +1130,14 @@ async function updatePanelPage(
   pageId: string,
   patch: z.input<typeof pagePatchSchema>
 ): Promise<PanelPage> {
-  const payload = pagePatchSchema.parse({
+  const bodyData = pagePatchSchema.parse({
     ...patch,
     slug: typeof patch.slug === 'string' ? normalizePageSlug(patch.slug) : undefined,
   })
 
   const raw = await requestPanel(`/pages/${encodeURIComponent(pageId)}`, {
     method: 'PATCH',
-    body: payload,
+    body: bodyData,
   })
 
   return extractSingle(raw, pageSchema)
@@ -1155,13 +1155,13 @@ async function createPageRevision(
     }
   })
 
-  const payload = createRevisionRequestSchema.parse({
+  const bodyData = createRevisionRequestSchema.parse({
     blocks: normalizedBlocks,
   })
 
   const raw = await requestPanel(`/pages/${encodeURIComponent(pageId)}/revisions`, {
     method: 'POST',
-    body: payload,
+    body: bodyData,
   })
 
   return extractSingle(raw, pageRevisionSchema)
@@ -1354,24 +1354,24 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 }
 
 export async function createProject(input: unknown): Promise<ProjectDetail> {
-  const payload = projectCreateSchema.parse(input)
-  const slug = await buildUniqueSiteSlug(payload.name)
-  const template = normalizeOsgbTemplateId(payload.template || DEFAULT_OSGB_TEMPLATE)
+  const bodyData = projectCreateSchema.parse(input)
+  const slug = await buildUniqueSiteSlug(bodyData.name)
+  const template = normalizeOsgbTemplateId(bodyData.template || DEFAULT_OSGB_TEMPLATE)
 
   const contact: ProjectContactInfo = {
-    phone: normalizeNullableString(payload.contact?.phone),
-    email: normalizeNullableString(payload.contact?.email),
-    address: normalizeNullableString(payload.contact?.address),
-    city: normalizeNullableString(payload.contact?.city),
-    district: normalizeNullableString(payload.contact?.district),
+    phone: normalizeNullableString(bodyData.contact?.phone),
+    email: normalizeNullableString(bodyData.contact?.email),
+    address: normalizeNullableString(bodyData.contact?.address),
+    city: normalizeNullableString(bodyData.contact?.city),
+    district: normalizeNullableString(bodyData.contact?.district),
   }
 
   const site = await createPanelSite({
-    name: payload.name,
+    name: bodyData.name,
     slug,
-    description: normalizeNullableString(payload.description),
+    description: normalizeNullableString(bodyData.description),
     template,
-    industry: payload.industry || OSGB_INDUSTRY,
+    industry: bodyData.industry || OSGB_INDUSTRY,
     contact,
   })
 
@@ -1388,7 +1388,7 @@ export async function updateProjectUiSettings(
   projectId: string,
   input: unknown
 ): Promise<ProjectDetail> {
-  const payload = projectUiSettingsUpdateSchema.parse(input)
+  const bodyData = projectUiSettingsUpdateSchema.parse(input)
   const site = await getPanelSiteById(projectId).catch(() => null)
 
   if (!site) {
@@ -1399,39 +1399,39 @@ export async function updateProjectUiSettings(
   const currentUiSettings = parseProjectUiSettings(settings)
 
   const navigationLinks =
-    typeof payload.navigationLinks !== 'undefined'
-      ? normalizeUiPatchLinks(payload.navigationLinks)
+    typeof bodyData.navigationLinks !== 'undefined'
+      ? normalizeUiPatchLinks(bodyData.navigationLinks)
       : currentUiSettings.navigationLinks
 
   const footerLinks =
-    typeof payload.footerLinks !== 'undefined'
-      ? normalizeUiPatchLinks(payload.footerLinks)
+    typeof bodyData.footerLinks !== 'undefined'
+      ? normalizeUiPatchLinks(bodyData.footerLinks)
       : currentUiSettings.footerLinks
 
   const headerCtaLabel =
-    typeof payload.headerCtaLabel === 'undefined'
+    typeof bodyData.headerCtaLabel === 'undefined'
       ? currentUiSettings.headerCtaLabel
-      : normalizeNullableString(payload.headerCtaLabel)
+      : normalizeNullableString(bodyData.headerCtaLabel)
 
   const headerCtaHref =
-    typeof payload.headerCtaHref === 'undefined'
+    typeof bodyData.headerCtaHref === 'undefined'
       ? currentUiSettings.headerCtaHref
-      : normalizeProjectNavHref(payload.headerCtaHref)
+      : normalizeProjectNavHref(bodyData.headerCtaHref)
 
   const themeTokens =
-    typeof payload.themeTokens === 'undefined'
+    typeof bodyData.themeTokens === 'undefined'
       ? currentUiSettings.themeTokens
-      : normalizeThemeTokens(payload.themeTokens, currentUiSettings.themeTokens)
+      : normalizeThemeTokens(bodyData.themeTokens, currentUiSettings.themeTokens)
 
   const layoutConfig =
-    typeof payload.layoutConfig === 'undefined'
+    typeof bodyData.layoutConfig === 'undefined'
       ? currentUiSettings.layoutConfig
-      : normalizeLayoutConfig(payload.layoutConfig, currentUiSettings.layoutConfig)
+      : normalizeLayoutConfig(bodyData.layoutConfig, currentUiSettings.layoutConfig)
 
   const sectionVariants =
-    typeof payload.sectionVariants === 'undefined'
+    typeof bodyData.sectionVariants === 'undefined'
       ? currentUiSettings.sectionVariants
-      : normalizeSectionVariants(payload.sectionVariants, currentUiSettings.sectionVariants)
+      : normalizeSectionVariants(bodyData.sectionVariants, currentUiSettings.sectionVariants)
 
   const nextSettings: SiteSettingsRecord = {
     ...settings,
@@ -1502,14 +1502,14 @@ export async function generateProjectPages(
   projectId: string,
   input: unknown
 ): Promise<ProjectEditorPage[]> {
-  const payload = generationSchema.parse(input)
+  const bodyData = generationSchema.parse(input)
   const site = await getPanelSiteById(projectId).catch(() => null)
 
   if (!site) {
     throw new Error('Proje bulunamadi')
   }
 
-  const templates = buildDefaultPages(payload)
+  const templates = buildDefaultPages(bodyData)
   const existingPages = await listPanelPages(projectId)
   const pageBySlug = new Map(existingPages.items.map((page) => [normalizePageSlug(page.slug), page]))
 
@@ -1641,6 +1641,6 @@ export async function publishProject(
 }
 
 export async function debugListRawPages(projectId: string): Promise<Array<z.output<typeof pageSchema>>> {
-  const payload = await requestPanel(`/pages?site_id=${encodeURIComponent(projectId)}`)
-  return extractList(payload, pageSchema)
+  const bodyData = await requestPanel(`/pages?site_id=${encodeURIComponent(projectId)}`)
+  return extractList(bodyData, pageSchema)
 }

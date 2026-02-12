@@ -2,8 +2,8 @@
 /* DO NOT MODIFY IT BY HAND. */
 import type { Metadata } from 'next'
 
-import config from '@/payload.config'
-import { RootPage, generatePageMetadata } from '@payloadcms/next/views'
+import config from '@/bodyData.config'
+import { RootPage, generatePageMetadata } from '@bodydatacms/next/views'
 import { importMap } from '../importMap'
 
 type Args = {

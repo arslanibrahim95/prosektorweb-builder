@@ -10,9 +10,7 @@
     "skipLibCheck": true
   },
   "include": [
-    "tests/**/*.test.ts",
-    "src/features/ai-generation/lib/payload-block-mapper.ts",
-    "src/features/ai-generation/types/index.ts"
+    "tests/**/*.test.ts"
   ],
   "exclude": [
     "node_modules",

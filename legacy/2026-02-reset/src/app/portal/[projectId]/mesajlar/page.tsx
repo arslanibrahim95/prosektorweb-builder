@@ -1,4 +1,4 @@
-import { getPayloadInstance } from '@/lib/payload';
+import { getDataInstance } from '@/lib/bodyData';
 import { notFound } from 'next/navigation';
 import { 
   MessageSquare, 
@@ -18,10 +18,10 @@ interface MesajlarPageProps {
 
 export default async function MesajlarPage({ params }: MesajlarPageProps) {
   const { projectId } = await params;
-  const payload = await getPayloadInstance();
+  const bodyData = await getDataInstance();
 
   // Fetch standard contact submissions
-  const { docs: messages } = await payload.find({
+  const { docs: messages } = await bodyData.find({
     collection: 'contact-submissions',
     where: {
       'project.id': { equals: projectId },

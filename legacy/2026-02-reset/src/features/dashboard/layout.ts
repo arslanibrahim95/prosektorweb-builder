@@ -1,4 +1,4 @@
-import type { DashboardPuckData } from './contracts';
+import type { DashboardLayoutData } from './contracts';
 
 const BLOCK_WHITELIST = new Set([
   'hero',
@@ -20,7 +20,7 @@ export function normalizePageSlug(value: string | null | undefined): string {
   return `/${cleaned}`;
 }
 
-export function createPuckDataFromHtml(title: string, html: string): DashboardPuckData {
+export function createLayoutDataFromHtml(title: string, html: string): DashboardLayoutData {
   return {
     root: {
       props: {
@@ -38,10 +38,10 @@ export function createPuckDataFromHtml(title: string, html: string): DashboardPu
   };
 }
 
-export function createPuckDataFromBlocks(
+export function createLayoutDataFromBlocks(
   title: string,
   blocks: Array<{ blockType: string; [key: string]: unknown }>
-): DashboardPuckData {
+): DashboardLayoutData {
   const content = blocks
     .filter((block) => BLOCK_WHITELIST.has(block.blockType))
     .map((block) => {
@@ -62,12 +62,12 @@ export function createPuckDataFromBlocks(
   };
 }
 
-export function extractHtmlFromPuckData(puckData: DashboardPuckData | null | undefined): string {
-  if (!puckData || !Array.isArray(puckData.content)) {
+export function extractHtmlFromLayoutData(layoutData: DashboardLayoutData | null | undefined): string {
+  if (!layoutData || !Array.isArray(layoutData.content)) {
     return '';
   }
 
-  const contentBlock = puckData.content.find((block) => block?.type === 'content');
+  const contentBlock = layoutData.content.find((block) => block?.type === 'content');
   if (!contentBlock || !contentBlock.props || typeof contentBlock.props !== 'object') {
     return '';
   }
@@ -84,14 +84,14 @@ export function extractHtmlFromPuckData(puckData: DashboardPuckData | null | und
   return '';
 }
 
-export function normalizePuckBlocks(
-  puckData: DashboardPuckData | null | undefined
+export function normalizeLayoutBlocks(
+  layoutData: DashboardLayoutData | null | undefined
 ): Array<{ blockType: string; [key: string]: unknown }> {
-  if (!puckData || !Array.isArray(puckData.content)) {
+  if (!layoutData || !Array.isArray(layoutData.content)) {
     return [];
   }
 
-  return puckData.content
+  return layoutData.content
     .filter((block) => block && typeof block.type === 'string' && BLOCK_WHITELIST.has(block.type))
     .map((block) => ({
       blockType: block.type,

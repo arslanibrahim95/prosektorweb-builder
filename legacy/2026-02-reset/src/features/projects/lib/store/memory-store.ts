@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-import type { DashboardPage, DashboardPuckData, DashboardSite } from '@/features/dashboard/contracts';
-import { normalizePageSlug } from '@/features/dashboard/puck';
+import type { DashboardPage, DashboardLayoutData, DashboardSite } from '@/features/dashboard/contracts';
+import { normalizePageSlug } from '@/features/dashboard/layout';
 
 type SiteId = number;
 type PageId = number;
@@ -38,7 +38,7 @@ export interface MemoryCreatePageInput {
   siteId: string | number;
   title: string;
   slug: string;
-  puckData: DashboardPuckData;
+  layoutData: DashboardLayoutData;
   status?: string | null;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -47,7 +47,7 @@ export interface MemoryCreatePageInput {
 export interface MemoryUpdatePageInput {
   title?: string;
   slug?: string;
-  puckData?: DashboardPuckData;
+  layoutData?: DashboardLayoutData;
   status?: string | null;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -74,7 +74,7 @@ interface MemoryPage extends DashboardPage {
   status: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
-  puckData: DashboardPuckData;
+  layoutData: DashboardLayoutData;
   createdAt: string;
   updatedAt: string;
 }
@@ -265,7 +265,7 @@ export async function createMemoryPage(input: MemoryCreatePageInput): Promise<Da
     status: input.status ?? 'draft',
     seoTitle: input.seoTitle ?? null,
     seoDescription: input.seoDescription ?? null,
-    puckData: input.puckData,
+    layoutData: input.layoutData,
     createdAt: timestamp,
     updatedAt: timestamp,
   };

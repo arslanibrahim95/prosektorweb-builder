@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-export const DashboardPuckBlockSchema = z
+export const DashboardLayoutBlockSchema = z
   .object({
     type: z.string(),
     props: z.record(z.unknown()).optional(),
   })
   .passthrough();
 
-export const DashboardPuckDataSchema = z
+export const DashboardLayoutDataSchema = z
   .object({
     root: z
       .object({
@@ -16,7 +16,7 @@ export const DashboardPuckDataSchema = z
       .passthrough()
       .optional()
       .nullable(),
-    content: z.array(DashboardPuckBlockSchema).default([]),
+    content: z.array(DashboardLayoutBlockSchema).default([]),
   })
   .passthrough();
 
@@ -42,7 +42,7 @@ export const DashboardPageSchema = z
     status: z.string().optional().nullable(),
     seoTitle: z.string().optional().nullable(),
     seoDescription: z.string().optional().nullable(),
-    puckData: DashboardPuckDataSchema.optional().nullable(),
+    layoutData: DashboardLayoutDataSchema.optional().nullable(),
     createdAt: z.string().optional().nullable(),
     updatedAt: z.string().optional().nullable(),
   })
@@ -96,18 +96,18 @@ export const DashboardPublicPageSchema = z
     status: z.string().optional().nullable(),
     seoTitle: z.string().optional().nullable(),
     seoDescription: z.string().optional().nullable(),
-    puckData: DashboardPuckDataSchema.optional().nullable(),
+    layoutData: DashboardLayoutDataSchema.optional().nullable(),
   })
   .passthrough();
 
-export const DashboardPublicSitePayloadSchema = z.object({
+export const DashboardPublicSiteBodySchema = z.object({
   ok: z.boolean().optional(),
   site: DashboardPublicSiteSchema,
   settings: DashboardPublicSettingsSchema.optional().nullable(),
   pages: z.array(DashboardPublicPageSchema).default([]),
 });
 
-export type DashboardPuckData = z.infer<typeof DashboardPuckDataSchema>;
+export type DashboardLayoutData = z.infer<typeof DashboardLayoutDataSchema>;
 export type DashboardSite = z.infer<typeof DashboardSiteSchema>;
 export type DashboardPage = z.infer<typeof DashboardPageSchema>;
-export type DashboardPublicSitePayload = z.infer<typeof DashboardPublicSitePayloadSchema>;
+export type DashboardPublicSiteBody = z.infer<typeof DashboardPublicSiteBodySchema>;

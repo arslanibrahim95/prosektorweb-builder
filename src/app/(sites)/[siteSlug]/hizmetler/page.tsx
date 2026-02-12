@@ -142,7 +142,7 @@ export default async function HizmetlerPage({ params }: HizmetlerPageProps) {
     );
   }
 
-  // Use dynamic services from Payload if available
+  // Use dynamic services from BodyData if available
   const hasDynamicServices = services.length > 0;
 
   return (

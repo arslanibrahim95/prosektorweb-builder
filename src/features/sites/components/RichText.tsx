@@ -6,7 +6,7 @@ interface RichTextProps {
 /**
  * Renders either:
  * - HTML string (dangerouslySetInnerHTML)
- * - Payload Lexical richText JSON (root.children tree)
+ * - BodyData Lexical richText JSON (root.children tree)
  */
 export function RichText({ content, className }: RichTextProps) {
   if (!content) return null

@@ -48,12 +48,12 @@ export class PanelApiError extends Error {
 }
 
 function extractSingle<TSchema extends z.ZodTypeAny>(
-  payload: unknown,
+  bodyData: unknown,
   schema: TSchema
 ): z.output<TSchema> {
-  const candidates: unknown[] = [payload]
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
+  const candidates: unknown[] = [bodyData]
+  if (bodyData && typeof bodyData === 'object') {
+    const record = bodyData as Record<string, unknown>
     candidates.push(record.item, record.data, record.doc)
   }
 
@@ -66,19 +66,19 @@ function extractSingle<TSchema extends z.ZodTypeAny>(
     status: 502,
     code: 'VALIDATION_ERROR',
     message: 'Panel API tekil yaniti kontrata uymuyor',
-    rawBody: payload,
+    rawBody: bodyData,
   })
 }
 
 function extractList<TSchema extends z.ZodTypeAny>(
-  payload: unknown,
+  bodyData: unknown,
   schema: TSchema
 ): { items: Array<z.output<TSchema>>; total: number } {
-  if (payload && typeof payload === 'object') {
+  if (bodyData && typeof bodyData === 'object') {
     const directParsed = z.object({
       items: z.array(schema),
       total: z.number().optional(),
-    }).safeParse(payload)
+    }).safeParse(bodyData)
 
     if (directParsed.success) {
       return {
@@ -87,7 +87,7 @@ function extractList<TSchema extends z.ZodTypeAny>(
       }
     }
 
-    const record = payload as Record<string, unknown>
+    const record = bodyData as Record<string, unknown>
     const arrayCandidates = [record.docs, record.data, record.items]
     for (const arrayCandidate of arrayCandidates) {
       if (!Array.isArray(arrayCandidate)) continue
@@ -103,8 +103,8 @@ function extractList<TSchema extends z.ZodTypeAny>(
     }
   }
 
-  if (Array.isArray(payload)) {
-    const parsedItems = z.array(schema).safeParse(payload)
+  if (Array.isArray(bodyData)) {
+    const parsedItems = z.array(schema).safeParse(bodyData)
     if (parsedItems.success) {
       return {
         items: parsedItems.data,
@@ -117,7 +117,7 @@ function extractList<TSchema extends z.ZodTypeAny>(
     status: 502,
     code: 'VALIDATION_ERROR',
     message: 'Panel API liste yaniti kontrata uymuyor',
-    rawBody: payload,
+    rawBody: bodyData,
   })
 }
 
@@ -340,38 +340,38 @@ export async function requestPanel<TSchema extends z.ZodTypeAny | undefined = un
 }
 
 export async function getPanelMe(token?: string | null) {
-  const payload = await requestPanel('/me', {
+  const bodyData = await requestPanel('/me', {
     token,
   })
-  return extractSingle(payload, meResponseSchema)
+  return extractSingle(bodyData, meResponseSchema)
 }
 
 export async function listPanelSites(token?: string | null) {
-  const payload = await requestPanel('/sites', {
+  const bodyData = await requestPanel('/sites', {
     token,
   })
-  return extractList(payload, siteSchema)
+  return extractList(bodyData, siteSchema)
 }
 
 export async function getPanelSiteById(siteId: string, token?: string | null) {
-  const payload = await requestPanel(`/sites/${encodeURIComponent(siteId)}`, {
+  const bodyData = await requestPanel(`/sites/${encodeURIComponent(siteId)}`, {
     token,
   })
-  return extractSingle(payload, siteSchema)
+  return extractSingle(bodyData, siteSchema)
 }
 
 export async function listPanelPages(siteId: string, token?: string | null) {
-  const payload = await requestPanel(`/pages?site_id=${encodeURIComponent(siteId)}`, {
+  const bodyData = await requestPanel(`/pages?site_id=${encodeURIComponent(siteId)}`, {
     token,
   })
-  return extractList(payload, listPagesResponseSchema.shape.items.element)
+  return extractList(bodyData, listPagesResponseSchema.shape.items.element)
 }
 
 export async function listPanelPageRevisions(pageId: string, token?: string | null) {
-  const payload = await requestPanel(`/pages/${encodeURIComponent(pageId)}/revisions`, {
+  const bodyData = await requestPanel(`/pages/${encodeURIComponent(pageId)}/revisions`, {
     token,
   })
-  return extractList(payload, listPageRevisionsResponseSchema.shape.items.element)
+  return extractList(bodyData, listPageRevisionsResponseSchema.shape.items.element)
 }
 
 export async function getPanelPageRevision(
@@ -379,20 +379,20 @@ export async function getPanelPageRevision(
   revisionId: string,
   token?: string | null
 ) {
-  const payload = await requestPanel(
+  const bodyData = await requestPanel(
     `/pages/${encodeURIComponent(pageId)}/revisions/${encodeURIComponent(revisionId)}`,
     {
       token,
     }
   )
-  return extractSingle(payload, pageRevisionSchema)
+  return extractSingle(bodyData, pageRevisionSchema)
 }
 
 export async function listPanelModules(siteId: string, token?: string | null) {
-  const payload = await requestPanel(`/modules?site_id=${encodeURIComponent(siteId)}`, {
+  const bodyData = await requestPanel(`/modules?site_id=${encodeURIComponent(siteId)}`, {
     token,
   })
-  return extractList(payload, listModulesResponseSchema.shape.items.element)
+  return extractList(bodyData, listModulesResponseSchema.shape.items.element)
 }
 
 export async function getPanelContactModule(siteId: string, token?: string | null) {
@@ -401,10 +401,10 @@ export async function getPanelContactModule(siteId: string, token?: string | nul
 }
 
 export async function getPanelSiteToken(siteId: string, token?: string | null) {
-  const payload = await requestPanel(`/sites/${encodeURIComponent(siteId)}/site-token`, {
+  const bodyData = await requestPanel(`/sites/${encodeURIComponent(siteId)}/site-token`, {
     token,
   })
-  return extractSingle(payload, siteTokenResponseSchema)
+  return extractSingle(bodyData, siteTokenResponseSchema)
 }
 
 export async function submitPanelPublic(path: string, body: unknown) {

@@ -98,12 +98,12 @@ export async function requireAuth(roles?: string[]) {
   return session
 }
 
-export async function logAudit(payload: unknown) {
-  logger.info(payload, 'audit')
+export async function logAudit(bodyData: unknown) {
+  logger.info(bodyData, 'audit')
 }
 
-export async function createAuditLog(payload: unknown) {
-  logger.info(payload, 'audit')
+export async function createAuditLog(bodyData: unknown) {
+  logger.info(bodyData, 'audit')
 }
 
 export function createSafeAction<TArgs extends unknown[], TResult>(

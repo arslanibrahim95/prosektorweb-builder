@@ -4,7 +4,7 @@ const SIGNATURE_PREFIX = 'sha256=';
 
 export const PUBLISH_SIGNATURE_MAX_SKEW_SECONDS = 300;
 
-export interface PublishWebhookPayload {
+export interface PublishWebhookBody {
   event: 'publish' | 'unpublish' | 'page_update' | 'site_update';
   site: {
     id: string;
@@ -164,9 +164,9 @@ export function collectWarmupPaths(siteSlug: string, pages?: string[]): string[]
   return Array.from(set);
 }
 
-function extractErrorMessage(payload: unknown): string | null {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
+function extractErrorMessage(bodyData: unknown): string | null {
+  if (!bodyData || typeof bodyData !== 'object') return null;
+  const record = bodyData as Record<string, unknown>;
   if (typeof record.error === 'string' && record.error) return record.error;
   if (typeof record.message === 'string' && record.message) return record.message;
   if (Array.isArray(record.warnings) && record.warnings.length > 0) {
@@ -210,7 +210,7 @@ export async function dispatchDemoPublishWebhook(input: {
     };
   }
 
-  const payload: PublishWebhookPayload = {
+  const bodyData: PublishWebhookBody = {
     event: input.event || 'publish',
     site: {
       id:
@@ -228,7 +228,7 @@ export async function dispatchDemoPublishWebhook(input: {
     source: input.source || 'panel',
   };
 
-  const rawBody = JSON.stringify(payload);
+  const rawBody = JSON.stringify(bodyData);
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = buildSignedWebhookSignature(rawBody, webhookSecret, timestamp);
 

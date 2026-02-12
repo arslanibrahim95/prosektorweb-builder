@@ -1,7 +1,7 @@
 /* THIS FILE WAS GENERATED AUTOMATICALLY BY PAYLOAD. */
 /* DO NOT MODIFY IT BY HAND. */
-import config from '@/payload.config'
-import '@payloadcms/next/css'
+import config from '@/bodyData.config'
+import '@bodydatacms/next/css'
 import {
   REST_DELETE,
   REST_GET,
@@ -9,7 +9,7 @@ import {
   REST_PATCH,
   REST_POST,
   REST_PUT,
-} from '@payloadcms/next/routes'
+} from '@bodydatacms/next/routes'
 
 export const GET = REST_GET(config)
 export const POST = REST_POST(config)

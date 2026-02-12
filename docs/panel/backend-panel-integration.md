@@ -84,7 +84,7 @@ Token cozumleme sirasi:
 - `POST /public/hr/apply`
 
 Response toleransi:
-- Tekil: `payload` veya `item` veya `data` veya `doc`
+- Tekil: `bodyData` veya `item` veya `data` veya `doc`
 - Liste: `items` veya `docs` veya `data`
 - Sozlesme validasyonu `@prosektor/contracts` ile yapilir
 

@@ -20,7 +20,7 @@ Bu planla publish doğruluğu, “webhook 2xx + revalidate tam eşleşme” şar
 | `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/server/services/revalidate.service.ts` | Revalidate endpoint çağrısını imzalı yap; dönen `revalidatedPaths` listesini beklenen path set’iyle bire bir karşılaştır. |
 | `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/server/mappers/content-package.mapper.ts` | Content package -> `page`/`page_block` map kurallarını tek noktada uygula; stable block key (`pageSlug:type:index`) üret. |
 | `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/server/db/repositories/page-block.repository.ts` | Upsert anahtarını stable block key’e taşı; block sıralamasını `displayOrder` ile deterministik tut. |
-| `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/server/validation/project.schemas.ts` | Create/generate/publish payload şemalarını katılaştır (slug, locale, section type enum, max length). |
+| `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/server/validation/project.schemas.ts` | Create/generate/publish bodyData şemalarını katılaştır (slug, locale, section type enum, max length). |
 | `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/shared/contracts/project-api.contract.ts` | API request/response tiplerini runtime şemalarla hizala. |
 | `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/src/shared/contracts/content-package.contract.ts` | Content package sözleşmesini (version, pages, sections, seo, navigation, theme) sabitle. |
 | `/home/igu/Desktop/osgb_site_yap/prosektorweb-builder/.env.example` | `PUBLISH_WEBHOOK_SECRET`, `REVALIDATE_SECRET`, `FRONTEND_REVALIDATE_URL`, `WEBHOOK_TIMEOUT_MS` değişkenlerini ekle/açıkla. |
@@ -96,7 +96,7 @@ Doğrulama kuralları:
 1. Unit: `/tests/unit/content-package.mapper.test.ts`
    - Section type mapping, block key üretimi, sıralama, unknown type `422`.
 2. Unit: `/tests/unit/project.schemas.test.ts`
-   - Slug/locale/seo limitleri, invalid payload senaryoları.
+   - Slug/locale/seo limitleri, invalid bodyData senaryoları.
 3. Unit: `/tests/unit/publish.service.test.ts`
    - Durum geçişleri, idempotency-key tekrarları, release activation kuralları.
 4. Unit: `/tests/unit/revalidate.service.test.ts`

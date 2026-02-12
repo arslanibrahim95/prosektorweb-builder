@@ -236,7 +236,7 @@ export const createDomainRequestSchema = z.object({
   is_primary: z.boolean().optional(),
 })
 
-export const publishWebhookPayloadSchema = z.object({
+export const publishWebhookBodySchema = z.object({
   event: z.enum(['publish', 'unpublish', 'page_update', 'site_update']),
   traceId: z.string().min(8),
   publishedAt: isoDateTimeSchema,
@@ -303,4 +303,4 @@ export type Page = z.infer<typeof pageSchema>
 export type PageRevision = z.infer<typeof pageRevisionSchema>
 export type Block = z.infer<typeof blockSchema>
 export type ModuleInstance = z.infer<typeof moduleInstanceSchema>
-export type PublishWebhookPayload = z.infer<typeof publishWebhookPayloadSchema>
+export type PublishWebhookBody = z.infer<typeof publishWebhookBodySchema>

@@ -1,17 +1,17 @@
-# TASK: OSGB Site Yap - Payload/Puck Uyumlaştırma
+# TASK: OSGB Site Yap - BodyData/Layout Uyumlaştırma
 
 ## Goal
-`osgb_site_yap` runtime'ını `dashboard` (Payload + Puck) ile tam uyumlu hale getir ve kullanıcıya tek sistem hissi ver.
+`osgb_site_yap` runtime'ını `dashboard` (BodyData + Layout) ile tam uyumlu hale getir ve kullanıcıya tek sistem hissi ver.
 
 ## Source of Truth
-- İçerik kaynağı: `dashboard` Payload koleksiyonları
+- İçerik kaynağı: `dashboard` BodyData koleksiyonları
   - `websites`
   - `pages`
   - `site-settings`
 - Edit/publish yalnızca `dashboard/admin/builder` üzerinden yapılır.
 
 ## Required Contracts
-- Page content alanı: `pages.puckData`
+- Page content alanı: `pages.layoutData`
 - Desteklenen block tipleri:
   - `hero`, `services`, `about`, `cta`, `faq`, `team`, `stats`, `gallery`, `testimonials`, `content`
 - Public API:
@@ -23,7 +23,7 @@
 1. Response contract guard ekle:
    - `site`, `settings`, `pages/page` için runtime doğrulama (Zod veya TS guard).
 2. Adapter katmanı netleştir:
-   - `puckData.content` -> mevcut section component prop yapısına map et.
+   - `layoutData.content` -> mevcut section component prop yapısına map et.
    - Eksik alanlar için güvenli fallback uygula.
 3. Tasarım dili birleştir:
    - API'den gelen `brandPrimary/brandSecondary` ve font tercihlerini layout CSS variable olarak uygula.

@@ -1,9 +1,9 @@
 /* THIS FILE WAS GENERATED AUTOMATICALLY BY PAYLOAD. */
 /* DO NOT MODIFY IT BY HAND. */
-import config from '@/payload.config'
-import '@payloadcms/next/css'
-import type { ServerFunctionClient } from 'payload'
-import { handleServerFunctions, RootLayout } from '@payloadcms/next/layouts'
+import config from '@/bodyData.config'
+import '@bodydatacms/next/css'
+import type { ServerFunctionClient } from 'bodyData'
+import { handleServerFunctions, RootLayout } from '@bodydatacms/next/layouts'
 import React from 'react'
 
 import { importMap } from './admin/importMap'

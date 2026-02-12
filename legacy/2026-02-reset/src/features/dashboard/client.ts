@@ -3,10 +3,10 @@ import {
   DashboardPageSchema,
   type DashboardSite,
   type DashboardPage,
-  type DashboardPuckData,
+  type DashboardLayoutData,
 } from './contracts';
-import { normalizePageSlug } from './puck';
-import { getPayloadInstance } from '@/lib/payload';
+import { normalizePageSlug } from './layout';
+import { getDataInstance } from '@/lib/bodyData';
 
 const collections = {
   sites: process.env.DASHBOARD_SITES_COLLECTION || 'websites',
@@ -61,32 +61,32 @@ async function parseJson(response: Response): Promise<unknown> {
   }
 }
 
-function extractDocs(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object') {
-    const objectPayload = payload as Record<string, unknown>;
-    if (Array.isArray(objectPayload.docs)) return objectPayload.docs;
-    if (Array.isArray(objectPayload.data)) return objectPayload.data;
-    if (Array.isArray(objectPayload.items)) return objectPayload.items;
+function extractDocs(bodyData: unknown): unknown[] {
+  if (Array.isArray(bodyData)) return bodyData;
+  if (bodyData && typeof bodyData === 'object') {
+    const objectBody = bodyData as Record<string, unknown>;
+    if (Array.isArray(objectBody.docs)) return objectBody.docs;
+    if (Array.isArray(objectBody.data)) return objectBody.data;
+    if (Array.isArray(objectBody.items)) return objectBody.items;
   }
 
   return [];
 }
 
-function extractDoc(payload: unknown): unknown {
-  if (payload && typeof payload === 'object') {
-    const objectPayload = payload as Record<string, unknown>;
-    if (objectPayload.doc) return objectPayload.doc;
-    if (objectPayload.data) return objectPayload.data;
+function extractDoc(bodyData: unknown): unknown {
+  if (bodyData && typeof bodyData === 'object') {
+    const objectBody = bodyData as Record<string, unknown>;
+    if (objectBody.doc) return objectBody.doc;
+    if (objectBody.data) return objectBody.data;
   }
 
-  return payload;
+  return bodyData;
 }
 
 function parseSite(data: unknown): DashboardSite {
   const parsed = DashboardSiteSchema.safeParse(data);
   if (!parsed.success) {
-    throw new Error(`Dashboard site schema uyumsuz: ${parsed.error.issues[0]?.message || 'invalid site payload'}`);
+    throw new Error(`Dashboard site schema uyumsuz: ${parsed.error.issues[0]?.message || 'invalid site bodyData'}`);
   }
   return parsed.data;
 }
@@ -94,7 +94,7 @@ function parseSite(data: unknown): DashboardSite {
 function parsePage(data: unknown): DashboardPage {
   const parsed = DashboardPageSchema.safeParse(data);
   if (!parsed.success) {
-    throw new Error(`Dashboard page schema uyumsuz: ${parsed.error.issues[0]?.message || 'invalid page payload'}`);
+    throw new Error(`Dashboard page schema uyumsuz: ${parsed.error.issues[0]?.message || 'invalid page bodyData'}`);
   }
   return parsed.data;
 }
@@ -121,10 +121,10 @@ async function request(url: string, init?: RequestInit): Promise<unknown> {
   const body = await parseJson(response);
 
   if (!response.ok) {
-    const payload = body as Record<string, unknown>;
+    const bodyData = body as Record<string, unknown>;
     const message =
-      (typeof payload?.error === 'string' && payload.error) ||
-      (typeof payload?.message === 'string' && payload.message) ||
+      (typeof bodyData?.error === 'string' && bodyData.error) ||
+      (typeof bodyData?.message === 'string' && bodyData.message) ||
       `${response.status} ${response.statusText}`;
     throw new Error(`Dashboard API hatası: ${message}`);
   }
@@ -169,7 +169,7 @@ export interface CreateDashboardPageInput {
   siteId: string;
   title: string;
   slug: string;
-  puckData: DashboardPuckData;
+  layoutData: DashboardLayoutData;
   status?: string;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -178,7 +178,7 @@ export interface CreateDashboardPageInput {
 export interface UpdateDashboardPageInput {
   title?: string;
   slug?: string;
-  puckData?: DashboardPuckData;
+  layoutData?: DashboardLayoutData;
   status?: string;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -186,8 +186,8 @@ export interface UpdateDashboardPageInput {
 
 export async function listDashboardSites(): Promise<DashboardSite[]> {
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const result = await payload.find({
+    const bodyData = (await getDataInstance()) as any;
+    const result = await bodyData.find({
       collection: collections.sites as never,
       limit: 100,
       sort: '-updatedAt',
@@ -205,8 +205,8 @@ export async function listDashboardSites(): Promise<DashboardSite[]> {
 
 export async function findDashboardSiteBySlug(slug: string): Promise<DashboardSite | null> {
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const result = await payload.find({
+    const bodyData = (await getDataInstance()) as any;
+    const result = await bodyData.find({
       collection: collections.sites as never,
       where: {
         slug: {
@@ -232,10 +232,10 @@ export async function findDashboardSiteBySlug(slug: string): Promise<DashboardSi
 
 export async function getDashboardSiteById(siteId: string): Promise<DashboardSite | null> {
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
+    const bodyData = (await getDataInstance()) as any;
 
     try {
-      const doc = await payload.findByID({
+      const doc = await bodyData.findByID({
         collection: collections.sites as never,
         id: normalizeRelationValue(siteId),
         depth: 1,
@@ -262,7 +262,7 @@ export async function getDashboardSiteById(siteId: string): Promise<DashboardSit
 }
 
 export async function createDashboardSite(input: CreateDashboardSiteInput): Promise<DashboardSite> {
-  const payloadData = cleanUndefined({
+  const bodyDataRecord = cleanUndefined({
     name: input.name,
     slug: input.slug,
     description: input.description || '',
@@ -272,10 +272,10 @@ export async function createDashboardSite(input: CreateDashboardSiteInput): Prom
   });
 
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const created = await payload.create({
+    const bodyData = (await getDataInstance()) as any;
+    const created = await bodyData.create({
       collection: collections.sites as never,
-      data: payloadData,
+      data: bodyDataRecord,
       overrideAccess: true,
     });
 
@@ -284,7 +284,7 @@ export async function createDashboardSite(input: CreateDashboardSiteInput): Prom
 
   const data = await request(buildCollectionUrl(collections.sites), {
     method: 'POST',
-    body: JSON.stringify(payloadData),
+    body: JSON.stringify(bodyDataRecord),
   });
 
   return parseSite(extractDoc(data));
@@ -297,8 +297,8 @@ export async function updateDashboardSite(
   const patchData = cleanUndefined(patch as Record<string, unknown>);
 
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const updated = await payload.update({
+    const bodyData = (await getDataInstance()) as any;
+    const updated = await bodyData.update({
       collection: collections.sites as never,
       id: normalizeRelationValue(siteId),
       data: patchData,
@@ -318,8 +318,8 @@ export async function updateDashboardSite(
 
 export async function listDashboardPages(siteId: string): Promise<DashboardPage[]> {
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const result = await payload.find({
+    const bodyData = (await getDataInstance()) as any;
+    const result = await bodyData.find({
       collection: collections.pages as never,
       where: {
         [collections.pageSiteField]: {
@@ -354,10 +354,10 @@ export async function listDashboardPages(siteId: string): Promise<DashboardPage[
 }
 
 export async function createDashboardPage(input: CreateDashboardPageInput): Promise<DashboardPage> {
-  const payloadData = cleanUndefined({
+  const bodyDataRecord = cleanUndefined({
     title: input.title,
     slug: normalizePageSlug(input.slug),
-    puckData: input.puckData,
+    layoutData: input.layoutData,
     status: input.status || 'draft',
     seoTitle: input.seoTitle || undefined,
     seoDescription: input.seoDescription || undefined,
@@ -365,10 +365,10 @@ export async function createDashboardPage(input: CreateDashboardPageInput): Prom
   });
 
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const created = await payload.create({
+    const bodyData = (await getDataInstance()) as any;
+    const created = await bodyData.create({
       collection: collections.pages as never,
-      data: payloadData,
+      data: bodyDataRecord,
       overrideAccess: true,
     });
 
@@ -381,7 +381,7 @@ export async function createDashboardPage(input: CreateDashboardPageInput): Prom
 
   const data = await request(buildCollectionUrl(collections.pages), {
     method: 'POST',
-    body: JSON.stringify(payloadData),
+    body: JSON.stringify(bodyDataRecord),
   });
 
   const page = parsePage(extractDoc(data));
@@ -392,22 +392,22 @@ export async function createDashboardPage(input: CreateDashboardPageInput): Prom
 }
 
 export async function updateDashboardPage(pageId: string, patch: UpdateDashboardPageInput): Promise<DashboardPage> {
-  const payloadData: Record<string, unknown> = {
+  const bodyDataRecord: Record<string, unknown> = {
     ...patch,
   };
 
   if (typeof patch.slug === 'string') {
-    payloadData.slug = normalizePageSlug(patch.slug);
+    bodyDataRecord.slug = normalizePageSlug(patch.slug);
   }
 
-  const sanitizedPayload = cleanUndefined(payloadData);
+  const sanitizedBody = cleanUndefined(bodyDataRecord);
 
   if (localDirectAdapterEnabled) {
-    const payload = (await getPayloadInstance()) as any;
-    const updated = await payload.update({
+    const bodyData = (await getDataInstance()) as any;
+    const updated = await bodyData.update({
       collection: collections.pages as never,
       id: normalizeRelationValue(pageId),
-      data: sanitizedPayload,
+      data: sanitizedBody,
       overrideAccess: true,
     });
 
@@ -420,7 +420,7 @@ export async function updateDashboardPage(pageId: string, patch: UpdateDashboard
 
   const data = await request(buildCollectionUrl(collections.pages, encodeURIComponent(pageId)), {
     method: 'PATCH',
-    body: JSON.stringify(sanitizedPayload),
+    body: JSON.stringify(sanitizedBody),
   });
 
   const page = parsePage(extractDoc(data));

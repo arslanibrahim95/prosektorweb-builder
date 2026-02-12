@@ -28,9 +28,6 @@
       ],
       "@prosektor/contracts": [
         "./src/contracts/index.ts"
-      ],
-      "@payload-config": [
-        "./src/payload.config.ts"
       ]
     }
   },

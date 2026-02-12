@@ -12,15 +12,15 @@ This project focuses on generating and operating OSGB websites through a Dashboa
 - **Pipeline Verify**: `npm run ci:verify`
 - **Deployment**: Docker + Caddy (`docker-compose.yml`, `deploy/Caddyfile`)
 
-## Payload + Puck Integration Task Template
-Use this template when assigning work to an agent for dashboard (`Payload + Puck`) compatibility:
+## BodyData + Layout Integration Task Template
+Use this template when assigning work to an agent for dashboard (`BodyData + Layout`) compatibility:
 
 ```md
-Task: Make `osgb_site_yap` fully compatible with dashboard Payload/Puck contracts.
+Task: Make `osgb_site_yap` fully compatible with dashboard BodyData/Layout contracts.
 
 Source of truth:
 - dashboard collections: websites, pages, site-settings
-- page content: pages.puckData
+- page content: pages.layoutData
 
 Required API contracts:
 - GET /api/public/sites/:siteSlug/pages
@@ -29,7 +29,7 @@ Required API contracts:
 
 Implementation checklist:
 1. Validate API response shape (runtime guard).
-2. Map `puckData.content` blocks to local section components.
+2. Map `layoutData.content` blocks to local section components.
 3. Apply design tokens (brand colors/fonts) to layout CSS vars.
 4. Ensure draft content never renders publicly.
 5. Keep save=draft and publish flow aligned with dashboard.

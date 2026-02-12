@@ -9,7 +9,7 @@ import {
   updateDashboardPage,
   updateDashboardSite,
 } from '@/features/dashboard/client';
-import { createPuckDataFromBlocks, createPuckDataFromHtml, extractHtmlFromPuckData, normalizePageSlug } from '@/features/dashboard/puck';
+import { createLayoutDataFromBlocks, createLayoutDataFromHtml, extractHtmlFromLayoutData, normalizePageSlug } from '@/features/dashboard/layout';
 import {
   createWebhookTraceId,
   dispatchDemoPublishWebhook,
@@ -240,7 +240,7 @@ async function createPage(input: {
   siteId: string;
   title: string;
   slug: string;
-  puckData: unknown;
+  layoutData: unknown;
   status?: string;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -363,14 +363,14 @@ function mapPageForEditor(page: {
   id: string | number;
   title?: string | null;
   slug?: string | null;
-  puckData?: unknown;
+  layoutData?: unknown;
   updatedAt?: string | null;
 }): ProjectEditorPage {
   return {
     id: toStringId(page.id),
     name: page.title || 'Sayfa',
     slug: toEditorSlug(page.slug),
-    content: extractHtmlFromPuckData(page.puckData as never),
+    content: extractHtmlFromLayoutData(page.layoutData as never),
     updatedAt: page.updatedAt || nowIso(),
   };
 }
@@ -616,15 +616,15 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 }
 
 export async function createProject(input: unknown): Promise<ProjectDetail> {
-  const payload = projectCreateSchema.parse(input);
-  const slug = await buildUniqueSiteSlug(payload.name);
-  const template = normalizeOsgbTemplateId(payload.template || DEFAULT_OSGB_TEMPLATE);
-  const contact = parseContact(payload.contact);
+  const bodyData = projectCreateSchema.parse(input);
+  const slug = await buildUniqueSiteSlug(bodyData.name);
+  const template = normalizeOsgbTemplateId(bodyData.template || DEFAULT_OSGB_TEMPLATE);
+  const contact = parseContact(bodyData.contact);
 
   const site = await createSite({
-    name: payload.name,
+    name: bodyData.name,
     slug,
-    description: payload.description || null,
+    description: bodyData.description || null,
     template,
     industry: OSGB_INDUSTRY,
     contact,
@@ -650,14 +650,14 @@ export async function generateProjectPages(
   projectId: string,
   input: unknown
 ): Promise<ProjectEditorPage[]> {
-  const payload = generationSchema.parse(input);
+  const bodyData = generationSchema.parse(input);
   const site = await getSiteById(projectId);
 
   if (!site) {
     throw new Error('Proje bulunamadı');
   }
 
-  const defaults = buildDefaultPages(payload);
+  const defaults = buildDefaultPages(bodyData);
   const existingPages = await listPages(projectId);
   const bySlug = new Map(existingPages.map((page) => [normalizePageSlug(page.slug || '/'), page]));
 
@@ -665,9 +665,9 @@ export async function generateProjectPages(
     const slug = normalizePageSlug(page.slug);
     const existing = bySlug.get(slug);
     const blocks = (page as { blocks?: Array<{ blockType: string; [key: string]: unknown }> }).blocks;
-    const puckData = Array.isArray(blocks)
-      ? createPuckDataFromBlocks(page.title, blocks)
-      : createPuckDataFromHtml(page.title, (page as { content?: string }).content || '');
+    const layoutData = Array.isArray(blocks)
+      ? createLayoutDataFromBlocks(page.title, blocks)
+      : createLayoutDataFromHtml(page.title, (page as { content?: string }).content || '');
 
     if (existing) {
       await updatePage(toStringId(existing.id), {
@@ -676,7 +676,7 @@ export async function generateProjectPages(
         seoTitle: page.seoTitle,
         seoDescription: page.seoDescription,
         status: 'draft',
-        puckData,
+        layoutData,
       });
     } else {
       await createPage({
@@ -686,7 +686,7 @@ export async function generateProjectPages(
         seoTitle: page.seoTitle,
         seoDescription: page.seoDescription,
         status: 'draft',
-        puckData,
+        layoutData,
       });
     }
   }
@@ -700,15 +700,15 @@ export async function createProjectPage(
   projectId: string,
   input: unknown
 ): Promise<ProjectEditorPage> {
-  const payload = pageCreateSchema.parse(input);
-  const slug = await buildUniquePageSlug(projectId, payload.name);
+  const bodyData = pageCreateSchema.parse(input);
+  const slug = await buildUniquePageSlug(projectId, bodyData.name);
 
   const page = await createPage({
     siteId: projectId,
-    title: payload.name,
+    title: bodyData.name,
     slug,
     status: 'draft',
-    puckData: createPuckDataFromHtml(payload.name, `<h1>${escapeHtml(payload.name)}</h1><p>İçerik ekleyin...</p>`),
+    layoutData: createLayoutDataFromHtml(bodyData.name, `<h1>${escapeHtml(bodyData.name)}</h1><p>İçerik ekleyin...</p>`),
   });
 
   return mapPageForEditor(page);
@@ -719,7 +719,7 @@ export async function updateProjectPage(
   pageId: string,
   input: unknown
 ): Promise<ProjectEditorPage> {
-  const payload = pageUpdateSchema.parse(input);
+  const bodyData = pageUpdateSchema.parse(input);
 
   const existingPages = await listPages(projectId);
   const existing = existingPages.find((page) => toStringId(page.id) === pageId);
@@ -729,10 +729,10 @@ export async function updateProjectPage(
   }
 
   const updated = await updatePage(pageId, {
-    title: payload.name,
+    title: bodyData.name,
     slug: normalizePageSlug(existing.slug || '/'),
     status: 'draft',
-    puckData: createPuckDataFromHtml(payload.name, payload.content),
+    layoutData: createLayoutDataFromHtml(bodyData.name, bodyData.content),
   });
 
   return mapPageForEditor(updated);
@@ -757,7 +757,7 @@ export async function publishProject(
     pages: pages.map((page) => ({
       slug: page.slug,
       status: page.status,
-      content: extractHtmlFromPuckData(page.puckData as never),
+      content: extractHtmlFromLayoutData(page.layoutData as never),
     })),
   });
 

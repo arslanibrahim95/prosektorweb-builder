@@ -81,6 +81,6 @@ Tüm bileşenlerde `tailwind.config.mjs` üzerinden yönetilen ve CSS değişken
 ## 6. Backend Handoff Notları
 
 - **Status Mapping:** UI, `ProjectStatus` enum değerlerine (draft, generating, review, etc.) tam uyumlu olmalıdır.
-- **Puck Integration:** `/projects/[id]` sayfasındaki düzenleme modu Puck editörünün veri şeması (`puckData`) ile beslenmelidir.
+- **Layout Integration:** `/projects/[id]` sayfasındaki düzenleme modu Layout editörünün veri şeması (`layoutData`) ile beslenmelidir.
 - **Theme Config:** Tasarımda kullanılan `primaryColor` değişkeni, backend'den gelen `ThemeConfig` objesinden dinamik olarak beslenmeli (CSS Variables via Style Attribute).
 - **API States:** Loading ve Error state'leri tüm fetch işlemlerinde UI tarafından yönetilmelidir (SWR veya React Query önerilir).

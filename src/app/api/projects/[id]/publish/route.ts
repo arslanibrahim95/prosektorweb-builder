@@ -10,7 +10,7 @@ const publishRequestSchema = z.object({
   requireQaScore: z.boolean().optional(),
 })
 
-async function parsePublishPayload(request: Request): Promise<z.infer<typeof publishRequestSchema>> {
+async function parsePublishRequestBody(request: Request): Promise<z.infer<typeof publishRequestSchema>> {
   const contentType = (request.headers.get('content-type') || '').toLowerCase()
   if (!contentType.includes('application/json')) {
     return {}
@@ -30,8 +30,8 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const payload = await parsePublishPayload(request)
-    const result = await publishProject(id, payload)
+    const bodyData = await parsePublishRequestBody(request)
+    const result = await publishProject(id, bodyData)
 
     return NextResponse.json({
       success: true,

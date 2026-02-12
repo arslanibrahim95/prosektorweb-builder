@@ -1,7 +1,7 @@
 import { revalidatePath } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { publishWebhookPayloadSchema } from '@prosektor/contracts'
+import { publishWebhookBodySchema } from '@prosektor/contracts'
 import {
   PUBLISH_SIGNATURE_MAX_SKEW_SECONDS,
   collectWarmupPaths,
@@ -9,7 +9,7 @@ import {
   verifyPublishWebhookSignature,
 } from '@/features/site-engine/lib/publish-webhook'
 
-const legacyPublishPayloadSchema = z.object({
+const legacyPublishBodySchema = z.object({
   siteSlug: z.string().min(1),
   siteId: z.string().optional(),
   pages: z.array(z.string()).optional(),
@@ -121,8 +121,8 @@ async function redisSetReplayKey(
 
     if (!response.ok) return 'error'
 
-    const payload = (await response.json()) as { result?: unknown }
-    return payload?.result === 'OK' ? 'created' : 'exists'
+    const bodyData = (await response.json()) as { result?: unknown }
+    return bodyData?.result === 'OK' ? 'created' : 'exists'
   } catch {
     return 'error'
   }
@@ -213,7 +213,7 @@ async function warmPath(origin: string, path: string): Promise<{
   }
 }
 
-function normalizePayload(input: unknown): {
+function normalizeBody(input: unknown): {
   event: 'publish' | 'unpublish' | 'page_update' | 'site_update'
   traceId: string
   publishedAt: string
@@ -221,7 +221,7 @@ function normalizePayload(input: unknown): {
   pages: string[]
   source: string
 } | null {
-  const modern = publishWebhookPayloadSchema.safeParse(input)
+  const modern = publishWebhookBodySchema.safeParse(input)
   if (modern.success) {
     return {
       event: modern.data.event,
@@ -233,7 +233,7 @@ function normalizePayload(input: unknown): {
     }
   }
 
-  const legacy = legacyPublishPayloadSchema.safeParse(input)
+  const legacy = legacyPublishBodySchema.safeParse(input)
   if (legacy.success) {
     return {
       event: legacy.data.event || 'publish',
@@ -290,15 +290,15 @@ export async function handleRevalidateWebhook(request: NextRequest) {
     )
   }
 
-  const payload = normalizePayload(parsedBody)
-  if (!payload) {
+  const bodyData = normalizeBody(parsedBody)
+  if (!bodyData) {
     return NextResponse.json(
-      { ok: false, error: 'Payload kontrata uymuyor' },
+      { ok: false, error: 'BodyData kontrata uymuyor' },
       { status: 400 }
     )
   }
 
-  const siteSlug = normalizeSiteSlug(payload.siteSlug)
+  const siteSlug = normalizeSiteSlug(bodyData.siteSlug)
   if (!siteSlug) {
     return NextResponse.json(
       { ok: false, error: 'Site slug gecersiz' },
@@ -313,7 +313,7 @@ export async function handleRevalidateWebhook(request: NextRequest) {
     )
   }
 
-  if (headerTraceId !== payload.traceId) {
+  if (headerTraceId !== bodyData.traceId) {
     return NextResponse.json(
       { ok: false, error: 'TraceId uyusmuyor' },
       { status: 400 }
@@ -321,18 +321,18 @@ export async function handleRevalidateWebhook(request: NextRequest) {
   }
 
   const replayRegistration = await registerTraceIdWithRedis(
-    payload.traceId,
+    bodyData.traceId,
     Math.floor(Date.now() / 1000)
   )
 
   if (!replayRegistration.accepted) {
     return NextResponse.json(
-      { ok: true, skipped: true, traceId: payload.traceId },
+      { ok: true, skipped: true, traceId: bodyData.traceId },
       { status: 200 }
     )
   }
 
-  const warmupPaths = collectWarmupPaths(siteSlug, payload.pages)
+  const warmupPaths = collectWarmupPaths(siteSlug, bodyData.pages)
   for (const path of warmupPaths) {
     revalidatePath(path)
   }
@@ -347,9 +347,9 @@ export async function handleRevalidateWebhook(request: NextRequest) {
 
   const durationMs = Date.now() - startedAt
   console.info('[site-engine revalidate] completed', {
-    traceId: payload.traceId,
+    traceId: bodyData.traceId,
     siteSlug,
-    event: payload.event,
+    event: bodyData.event,
     revalidatedCount: warmupPaths.length,
     warmupFailures: warnings.length,
     durationMs,
@@ -357,8 +357,8 @@ export async function handleRevalidateWebhook(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    traceId: payload.traceId,
-    event: payload.event,
+    traceId: bodyData.traceId,
+    event: bodyData.event,
     siteSlug,
     revalidated: warmupPaths,
     warmed,

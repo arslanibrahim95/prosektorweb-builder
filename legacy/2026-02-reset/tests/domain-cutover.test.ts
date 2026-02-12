@@ -28,7 +28,7 @@ test('mergeCutoverMetaIntoNotes appends and updates cutover meta marker', () => 
   assert.equal(second.includes('line-1'), true);
 });
 
-test('parseCutoverMetaFromNotes tolerates malformed marker payload', () => {
+test('parseCutoverMetaFromNotes tolerates malformed marker bodyData', () => {
   const notes = '__CUTOVER_META__={not-valid-json}';
   const meta = parseCutoverMetaFromNotes(notes);
   assert.deepEqual(meta, {});

@@ -58,14 +58,14 @@ def main() -> None:
         fail(f"File not found: {target}")
 
     try:
-        payload = parse_json_with_fallback(target.read_text(encoding="utf-8"))
+        bodyData = parse_json_with_fallback(target.read_text(encoding="utf-8"))
     except Exception as exc:
         fail(f"Cannot parse JSON: {exc}")
 
-    if not is_object(payload):
-        fail("Top-level payload must be an object")
+    if not is_object(bodyData):
+        fail("Top-level bodyData must be an object")
 
-    pages = payload.get("pages")
+    pages = bodyData.get("pages")
     if not isinstance(pages, list) or len(pages) == 0:
         fail("`pages` must be a non-empty array")
 
@@ -93,7 +93,7 @@ def main() -> None:
         if not is_non_empty_string(seo.get("description")):
             fail(f"pages[{index}].seo.description must be a non-empty string")
 
-    image_prompts = payload.get("imagePrompts")
+    image_prompts = bodyData.get("imagePrompts")
     if not isinstance(image_prompts, list) or len(image_prompts) == 0:
         fail("`imagePrompts` must be a non-empty array")
 
@@ -105,7 +105,7 @@ def main() -> None:
                 f"imagePrompts[{index}] must be a string or an object with a non-empty prompt"
             )
 
-    tone_guide = payload.get("toneGuide")
+    tone_guide = bodyData.get("toneGuide")
     tone_guide_valid = is_non_empty_string(tone_guide) or is_object(tone_guide)
     if not tone_guide_valid:
         fail("`toneGuide` must be a non-empty string or object")

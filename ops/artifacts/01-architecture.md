@@ -8,13 +8,13 @@
 
 ## 1. Architecture Summary
 
-OSGB Site Engine, Payload CMS + Puck editör yığınını kullanarak dinamik site oluşturma, içerik üretimi ve statik yayınlama akışı sağlayan bir sistemdir.
+OSGB Site Engine, BodyData CMS + Layout editör yığınını kullanarak dinamik site oluşturma, içerik üretimi ve statik yayınlama akışı sağlayan bir sistemdir.
 
 ### Temel Mimari Prensipler
 
 | Katman | Sorumluluk | Teknoloji |
 |--------|-----------|-----------|
-| **Data Layer** | Proje ve sayfa verileri | Payload CMS + MongoDB |
+| **Data Layer** | Proje ve sayfa verileri | BodyData CMS + MongoDB |
 | **Generation Layer** | İçerik üretimi ve blok oluşturma | Server Actions |
 | **Publishing Layer** | Statik site üretimi ve CDN dağıtımı | Cloudflare Pages |
 | **Rendering Layer** | Dinamik site görüntüleme | Next.js App Router |
@@ -25,7 +25,7 @@ OSGB Site Engine, Payload CMS + Puck editör yığınını kullanarak dinamik si
 ```
 [Create] → [Generate] → [Publish] → [Revalidate] → [Serve]
    ↓           ↓            ↓            ↓           ↓
- Payload    AI/Manual    Cloudflare   Next.js    ISR/CDN
+ BodyData    AI/Manual    Cloudflare   Next.js    ISR/CDN
 ```
 
 ---
@@ -98,7 +98,7 @@ src/
 │       └── lib/
 │           └── site-data.ts                [Backend] - Site veri çekme
 ├── collections/
-│   ├── Pages.ts                            [Backend] - Payload Pages collection
+│   ├── Pages.ts                            [Backend] - BodyData Pages collection
 │   └── access.ts                           [Backend] - Erişim kontrolleri
 └── contracts/                              [Shared] - TypeScript arayüzleri
 ```
@@ -109,19 +109,19 @@ src/
 
 ### 3.1 REST Endpoints
 
-| Endpoint | Method | Payload | Response | Durum |
+| Endpoint | Method | BodyData | Response | Durum |
 |----------|--------|---------|----------|-------|
 | `/api/projects` | GET | - | `ProjectListResponse` | ✅ Aktif |
-| `/api/projects` | POST | `CreateProjectPayload` | `Project` | ✅ Aktif |
+| `/api/projects` | POST | `CreateProjectBody` | `Project` | ✅ Aktif |
 | `/api/projects/[id]` | GET | - | `Project` | ✅ Aktif |
-| `/api/projects/[id]` | PATCH | `UpdateProjectPayload` | `Project` | ✅ Aktif |
+| `/api/projects/[id]` | PATCH | `UpdateProjectBody` | `Project` | ✅ Aktif |
 | `/api/projects/[id]` | DELETE | - | `{ success: boolean }` | ✅ Aktif |
-| `/api/projects/[id]/generate` | POST | `GenerateContentPayload` | `GenerationResult` | ✅ Aktif |
-| `/api/projects/[id]/publish` | POST | `PublishPayload` | `PublishResult` | ✅ Aktif |
-| `/api/revalidate` | POST | `RevalidatePayload` | `{ revalidated: boolean }` | ✅ Aktif |
-| `/api/contact` | POST | `ContactFormPayload` | `{ success: boolean }` | ✅ Aktif |
-| `/api/job-application` | POST | `JobApplicationPayload` | `{ success: boolean }` | ✅ Aktif |
-| `/api/quote-request` | POST | `QuoteRequestPayload` | `{ success: boolean }` | ✅ Aktif |
+| `/api/projects/[id]/generate` | POST | `GenerateContentBody` | `GenerationResult` | ✅ Aktif |
+| `/api/projects/[id]/publish` | POST | `PublishBody` | `PublishResult` | ✅ Aktif |
+| `/api/revalidate` | POST | `RevalidateBody` | `{ revalidated: boolean }` | ✅ Aktif |
+| `/api/contact` | POST | `ContactFormBody` | `{ success: boolean }` | ✅ Aktif |
+| `/api/job-application` | POST | `JobApplicationBody` | `{ success: boolean }` | ✅ Aktif |
+| `/api/quote-request` | POST | `QuoteRequestBody` | `{ success: boolean }` | ✅ Aktif |
 
 ### 3.2 Contract Definitions
 
@@ -168,7 +168,7 @@ interface SEOConfig {
 
 // src/contracts/generation.ts
 
-interface CreateProjectPayload {
+interface CreateProjectBody {
   name: string;
   slug: string;
   companyInfo: CompanyInfo;
@@ -176,7 +176,7 @@ interface CreateProjectPayload {
   theme?: Partial<ThemeConfig>;
 }
 
-interface GenerateContentPayload {
+interface GenerateContentBody {
   regeneratePages?: string[];  // boş ise tüm sayfalar
   seoOptimize?: boolean;
   contentTone?: 'professional' | 'friendly' | 'formal';
@@ -191,7 +191,7 @@ interface GenerationResult {
 
 // src/contracts/publish.ts
 
-interface PublishPayload {
+interface PublishBody {
   environment: 'preview' | 'production';
   customDomain?: string;
   purgeCache?: boolean;
@@ -207,7 +207,7 @@ interface PublishResult {
 
 // src/contracts/revalidate.ts
 
-interface RevalidatePayload {
+interface RevalidateBody {
   projectId: string;
   paths?: string[];      // boş ise tüm site
   tags?: string[];       // tag-based revalidation
@@ -215,12 +215,12 @@ interface RevalidatePayload {
 }
 ```
 
-### 3.3 Payload CMS Collections
+### 3.3 BodyData CMS Collections
 
 | Collection | Slug | Alanlar | İlişkiler |
 |------------|------|---------|-----------|
 | **Projects** | `projects` | id, name, slug, status, theme, seoConfig, publishedAt | pages (hasMany) |
-| **Pages** | `pages` | id, title, slug, puckData, seo, status | project (belongsTo) |
+| **Pages** | `pages` | id, title, slug, layoutData, seo, status | project (belongsTo) |
 | **Media** | `media` | id, url, alt, mimeType | - |
 | **BlogPosts** | `blog-posts` | id, title, slug, content, excerpt, publishedAt | project, author |
 
@@ -243,15 +243,15 @@ interface RevalidatePayload {
 │      ▼                                                              │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │ project-layer.ts::createProject()                             │  │
-│  │  1. Validate payload (Zod)                                    │  │
+│  │  1. Validate bodyData (Zod)                                    │  │
 │  │  2. Generate unique slug                                      │  │
-│  │  3. Create Payload document                                   │  │
+│  │  3. Create BodyData document                                   │  │
 │  │  4. Initialize default pages structure                        │  │
 │  │  5. Set status = 'draft'                                      │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │      │                                                              │
 │      ▼                                                              │
-│  [Payload CMS] → MongoDB                                           │
+│  [BodyData CMS] → MongoDB                                           │
 │      │                                                              │
 │      ▼                                                              │
 │  Response: Project { id, slug, status: 'draft' }                   │
@@ -277,15 +277,15 @@ interface RevalidatePayload {
 │  │  1. Update status = 'generating'                              │  │
 │  │  2. Load project context (company info, services)             │  │
 │  │  3. For each page template:                                   │  │
-│  │     a. Generate Puck blocks via AI/templates                  │  │
+│  │     a. Generate Layout blocks via AI/templates                  │  │
 │  │     b. Optimize SEO metadata                                  │  │
-│  │     c. Save puckData to Pages collection                      │  │
+│  │     c. Save layoutData to Pages collection                      │  │
 │  │  4. Validate generated content                                │  │
 │  │  5. Update status = 'review'                                  │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │      │                                                              │
 │      ▼                                                              │
-│  [Payload CMS] → Pages updated with puckData                       │
+│  [BodyData CMS] → Pages updated with layoutData                       │
 │      │                                                              │
 │      ▼                                                              │
 │  Response: GenerationResult { success, pagesGenerated }            │
@@ -293,18 +293,18 @@ interface RevalidatePayload {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Puck Data Structure:**
+**Layout Data Structure:**
 
 ```typescript
-interface PuckData {
+interface LayoutData {
   root: {
     props: RootProps;
   };
-  content: PuckBlock[];
-  zones?: Record<string, PuckBlock[]>;
+  content: LayoutBlock[];
+  zones?: Record<string, LayoutBlock[]>;
 }
 
-interface PuckBlock {
+interface LayoutBlock {
   type: string;          // 'HeroSection' | 'AboutSection' | ...
   props: BlockProps;
 }
@@ -338,7 +338,7 @@ interface PuckBlock {
 │      │                                                              │
 │      ├───────────────────┬───────────────────┐                     │
 │      ▼                   ▼                   ▼                     │
-│  [Cloudflare]     [Next.js ISR]      [Payload Update]             │
+│  [Cloudflare]     [Next.js ISR]      [BodyData Update]             │
 │      │                   │                   │                     │
 │      ▼                   ▼                   ▼                     │
 │  CDN Edge         Cache Purge         publishedAt set              │
@@ -365,7 +365,7 @@ interface PuckBlock {
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │ site-engine/lib/revalidate-handler.ts                         │  │
 │  │  1. Validate secret                                           │  │
-│  │  2. Parse paths/tags from payload                             │  │
+│  │  2. Parse paths/tags from bodyData                             │  │
 │  │  3. Execute revalidation strategy:                            │  │
 │  │     - revalidatePath() for specific paths                     │  │
 │  │     - revalidateTag() for tag-based invalidation              │  │
@@ -409,7 +409,7 @@ interface PuckBlock {
 │      ▼                                                              │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │ (sites)/[siteSlug]/[pageSlug]/page.tsx                        │  │
-│  │  1. Load page puckData                                        │  │
+│  │  1. Load page layoutData                                        │  │
 │  │  2. Pass to BlockRenderer                                     │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │      │                                                              │
@@ -436,8 +436,8 @@ interface PuckBlock {
 | **Generation Timeout** | 60s timeout | Chunk-based generation, progress tracking | Partial save, retry from checkpoint |
 | **Publish Deployment Fail** | Cloudflare API error | Retry with exponential backoff (3 attempts) | Rollback to previous deployment |
 | **Revalidation Fail** | revalidate() throws | Log error, continue with stale cache | Manual revalidation endpoint |
-| **Database Connection Lost** | Payload connection error | Connection pooling, auto-reconnect | Circuit breaker, fallback to cached data |
-| **Invalid Puck Data** | Runtime render error | Schema validation before save | Display fallback component, log error |
+| **Database Connection Lost** | BodyData connection error | Connection pooling, auto-reconnect | Circuit breaker, fallback to cached data |
+| **Invalid Layout Data** | Runtime render error | Schema validation before save | Display fallback component, log error |
 | **Theme Config Invalid** | Zod validation fail | Default theme fallback | Show validation errors in admin |
 | **Cloudflare API Rate Limit** | 429 response | Queue-based deployment, rate limiting | Exponential backoff, queue persistence |
 | **Memory Exhaustion (Generation)** | Process OOM | Stream-based processing, worker isolation | Auto-restart, reduce batch size |
@@ -484,7 +484,7 @@ const ERROR_STATUS_MAP: Record<ProjectStatus, ProjectStatus> = {
 | **BE-001** | Project CRUD endpoint'lerini tamamla | `src/app/api/projects/route.ts` | - |
 | **BE-002** | Proje durum makinesi implement et | `src/features/projects/lib/project-layer.ts` | BE-001 |
 | **BE-003** | Generate endpoint ve content-generator entegrasyonu | `src/app/api/projects/[id]/generate/route.ts` | BE-002 |
-| **BE-004** | Puck data validasyonu ve dönüşümü | `src/features/site-engine/lib/puck-validator.ts` | BE-003 |
+| **BE-004** | Layout data validasyonu ve dönüşümü | `src/features/site-engine/lib/layout-validator.ts` | BE-003 |
 
 ### Öncelik 2: Yayınlama Sistemi
 
@@ -493,13 +493,13 @@ const ERROR_STATUS_MAP: Record<ProjectStatus, ProjectStatus> = {
 | **BE-005** | Publish endpoint ve Cloudflare entegrasyonu | `src/app/api/projects/[id]/publish/route.ts` | BE-004 |
 | **BE-006** | Cloudflare Pages deployment handler | `src/server/integrations/cloudflare.ts` | BE-005 |
 | **BE-007** | Revalidation handler implementation | `src/features/site-engine/lib/revalidate-handler.ts` | BE-005 |
-| **BE-008** | Webhook endpoint for Payload hooks | `src/app/api/internal/webhook/route.ts` | BE-007 |
+| **BE-008** | Webhook endpoint for BodyData hooks | `src/app/api/internal/webhook/route.ts` | BE-007 |
 
 ### Öncelik 3: Veri Katmanı
 
 | Task ID | Açıklama | Dosya | Bağımlılık |
 |---------|----------|-------|------------|
-| **BE-009** | Pages collection Puck field eklentisi | `src/collections/Pages.ts` | - |
+| **BE-009** | Pages collection Layout field eklentisi | `src/collections/Pages.ts` | - |
 | **BE-010** | Site data fetcher optimizasyonu | `src/features/sites/lib/site-data.ts` | BE-009 |
 | **BE-011** | Access control politikaları | `src/collections/access.ts` | BE-009 |
 | **BE-012** | Contract type definitions | `src/contracts/` | - |
@@ -541,7 +541,7 @@ ThemedSiteLayout (Server)
 
 | Task ID | Açıklama | Dosya | Kısıtlamalar |
 |---------|----------|-------|--------------|
-| **FE-001** | BlockRenderer type-safe mapping | `src/features/sites/components/BlockRenderer.tsx` | Puck block types ile eşleşmeli |
+| **FE-001** | BlockRenderer type-safe mapping | `src/features/sites/components/BlockRenderer.tsx` | Layout block types ile eşleşmeli |
 | **FE-002** | HeroSection tema varyantları | `src/features/sites/components/sections/HeroSection.tsx` | 4 tema varyantı desteklemeli |
 | **FE-003** | AboutSection responsive layout | `src/features/sites/components/sections/AboutSection.tsx` | Mobile-first |
 | **FE-004** | ContactSection form integration | `src/features/sites/components/sections/ContactSection.tsx` | `/api/contact` kullanmalı |
@@ -584,7 +584,7 @@ const styles = {
 ### Backend Kabul Kriterleri
 
 - [ ] **BE-AC-01**: `POST /api/projects` yeni proje oluşturur, status='draft' döner
-- [ ] **BE-AC-02**: `POST /api/projects/[id]/generate` puckData üretir, status='review' olur
+- [ ] **BE-AC-02**: `POST /api/projects/[id]/generate` layoutData üretir, status='review' olur
 - [ ] **BE-AC-03**: `POST /api/projects/[id]/publish` Cloudflare'e deploy eder, URL döner
 - [ ] **BE-AC-04**: `POST /api/revalidate` belirtilen path'leri invalidate eder
 - [ ] **BE-AC-05**: Tüm endpoint'ler Zod validation kullanır
@@ -604,7 +604,7 @@ const styles = {
 ### Integration Kabul Kriterleri
 
 - [ ] **INT-AC-01**: Create → Generate → Publish → Serve akışı end-to-end çalışır
-- [ ] **INT-AC-02**: Payload hook'ları revalidation tetikler
+- [ ] **INT-AC-02**: BodyData hook'ları revalidation tetikler
 - [ ] **INT-AC-03**: Custom domain'ler doğru resolve olur
 - [ ] **INT-AC-04**: Error state'lerde kullanıcıya anlamlı mesaj gösterilir
 
@@ -622,7 +622,7 @@ const styles = {
 ```bash
 # Required
 DATABASE_URI=mongodb://...
-PAYLOAD_SECRET=xxx
+SERVICE_SECRET=xxx
 NEXT_PUBLIC_SITE_URL=https://...
 REVALIDATION_SECRET=xxx
 CLOUDFLARE_API_TOKEN=xxx

@@ -101,7 +101,7 @@ Header'lar:
 - `x-timestamp`
 - `x-trace-id`
 
-Payload:
+BodyData:
 
 ```json
 {
@@ -120,7 +120,7 @@ Payload:
 
 Başarılı çağrıda ilgili yollar `revalidatePath` ile yenilenir ve warmup istekleri atılır.
 
-Legacy payload (`siteSlug` alanı direkt body'de) da geçiş dönemi için desteklenir.
+Legacy bodyData (`siteSlug` alanı direkt body'de) da geçiş dönemi için desteklenir.
 
 ## Contracts
 

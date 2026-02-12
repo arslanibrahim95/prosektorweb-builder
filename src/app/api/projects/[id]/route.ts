@@ -77,16 +77,16 @@ export async function PATCH(
   try {
     const { id } = await params
     const json = await request.json().catch(() => ({}))
-    const payload = updateProjectSchema.parse(json)
+    const bodyData = updateProjectSchema.parse(json)
 
-    if (!payload.uiSettings) {
+    if (!bodyData.uiSettings) {
       return NextResponse.json(
         { success: false, error: 'Guncellenecek UI ayari bulunamadi' },
         { status: 400 }
       )
     }
 
-    const project = await updateProjectUiSettings(id, payload.uiSettings)
+    const project = await updateProjectUiSettings(id, bodyData.uiSettings)
 
     return NextResponse.json({ success: true, project })
   } catch (error) {
