@@ -1,4 +1,5 @@
 import { createProject, listProjects } from '@/features/projects/lib/project-layer'
+import { ProjectSlugResolutionError } from '@/features/projects/lib/site-slug'
 import { apiError, apiSuccess } from '@/shared/lib/api-contract'
 
 export async function GET() {
@@ -23,6 +24,15 @@ export async function POST(request: Request) {
     return apiSuccess({ project }, { status: 201 })
   } catch (error) {
     console.error('Create project error:', error)
+
+    if (error instanceof ProjectSlugResolutionError) {
+      return apiError({
+        status: error.statusCode,
+        code: error.code,
+        error: error.message,
+      })
+    }
+
     const message = error instanceof Error ? error.message : 'Proje olusturulamadi'
     return apiError({
       status: 400,

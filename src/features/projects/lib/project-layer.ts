@@ -38,6 +38,7 @@ import {
 } from '@/features/projects/lib/osgb'
 import { getSiteTheme } from '@/features/sites/themes/registry'
 import { normalizeSiteThemeId } from '@/features/sites/themes/types'
+import { createWithUniqueSlug } from '@/features/projects/lib/site-slug'
 
 const projectCreateSchema = z.object({
   name: z.string().trim().min(3).max(120),
@@ -1039,23 +1040,13 @@ function mapPageForEditor(page: PanelPage, blocks: RevisionBlock[]): ProjectEdit
   }
 }
 
-async function buildUniqueSiteSlug(name: string): Promise<string> {
-  const base = slugify(name) || 'site'
+async function listTakenSiteSlugs(): Promise<Set<string>> {
   const sites = await listPanelSites()
-  const taken = new Set(
-    sites.items.flatMap((site) => deriveSiteSlugCandidates(site).map((candidate) => slugify(candidate)))
+  return new Set(
+    sites.items
+      .flatMap((site) => deriveSiteSlugCandidates(site).map((candidate) => slugify(candidate)))
+      .filter(Boolean)
   )
-
-  if (!taken.has(base)) return base
-
-  let suffix = 1
-  while (suffix < 1000) {
-    const candidate = `${base}-${suffix}`
-    if (!taken.has(candidate)) return candidate
-    suffix += 1
-  }
-
-  return `${base}-${Date.now()}`
 }
 
 async function createPanelSite(input: {
@@ -1372,7 +1363,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 
 export async function createProject(input: unknown): Promise<ProjectDetail> {
   const bodyData = projectCreateSchema.parse(input)
-  const slug = await buildUniqueSiteSlug(bodyData.name)
+  const baseSlug = slugify(bodyData.name) || 'site'
   const template = normalizeOsgbTemplateId(bodyData.template || DEFAULT_OSGB_TEMPLATE)
 
   const contact: ProjectContactInfo = {
@@ -1383,16 +1374,23 @@ export async function createProject(input: unknown): Promise<ProjectDetail> {
     district: normalizeNullableString(bodyData.contact?.district),
   }
 
-  const site = await createPanelSite({
-    name: bodyData.name,
-    slug,
-    description: normalizeNullableString(bodyData.description),
-    template,
-    industry: bodyData.industry || OSGB_INDUSTRY,
-    contact,
+  const initialTaken = await listTakenSiteSlugs().catch(() => new Set<string>())
+
+  const created = await createWithUniqueSlug({
+    baseSlug,
+    initialTaken,
+    create: async (slug) =>
+      createPanelSite({
+        name: bodyData.name,
+        slug,
+        description: normalizeNullableString(bodyData.description),
+        template,
+        industry: bodyData.industry || OSGB_INDUSTRY,
+        contact,
+      }),
   })
 
-  return mapSiteToProjectDetail(site)
+  return mapSiteToProjectDetail(created.result)
 }
 
 export async function getProject(id: string): Promise<ProjectDetail | null> {
