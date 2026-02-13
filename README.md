@@ -117,6 +117,7 @@ BodyData:
 
 ```json
 {
+  "version": "1.0",
   "event": "publish",
   "traceId": "evt_2026_02_x1",
   "publishedAt": "2026-02-10T20:00:00.000+03:00",
@@ -126,7 +127,7 @@ BodyData:
     "status": "published"
   },
   "pages": ["/", "/hizmetler", "/iletisim"],
-  "source": "panel"
+  "source": "dashboard"
 }
 ```
 
@@ -139,6 +140,14 @@ Legacy bodyData (`siteSlug` alanı direkt body'de) da geçiş dönemi için dest
 Kod tarafında `@prosektor/contracts` import adı kullanılır. Bu repoda geçici local path map ile çözülür:
 - `src/contracts/index.ts`
 - `tsconfig.json` içinde `@prosektor/contracts` path tanımı
+
+Standart API response envelope (v1.0):
+- Success: `{ success: true, version: "1.0", ... }`
+- Error: `{ success: false, version: "1.0", error, code }`
+
+Webhook response envelope (v1.0):
+- Success: `{ ok: true, success: true, version: "1.0", ... }`
+- Error: `{ ok: false, success: false, version: "1.0", error, code }`
 
 ## Test ve Doğrulama
 

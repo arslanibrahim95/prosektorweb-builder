@@ -1,5 +1,5 @@
 import { revalidatePath } from 'next/cache'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { publishWebhookBodySchema } from '@prosektor/contracts'
 import {
@@ -8,6 +8,7 @@ import {
   normalizeSiteSlug,
   verifyPublishWebhookSignature,
 } from '@/features/site-engine/lib/publish-webhook'
+import { webhookError, webhookSuccess } from '@/shared/lib/api-contract'
 
 const legacyPublishBodySchema = z.object({
   siteSlug: z.string().min(1),
@@ -214,6 +215,7 @@ async function warmPath(origin: string, path: string): Promise<{
 }
 
 function normalizeBody(input: unknown): {
+  version: string
   event: 'publish' | 'unpublish' | 'page_update' | 'site_update'
   traceId: string
   publishedAt: string
@@ -224,6 +226,7 @@ function normalizeBody(input: unknown): {
   const modern = publishWebhookBodySchema.safeParse(input)
   if (modern.success) {
     return {
+      version: modern.data.version,
       event: modern.data.event,
       traceId: modern.data.traceId,
       publishedAt: modern.data.publishedAt,
@@ -236,6 +239,7 @@ function normalizeBody(input: unknown): {
   const legacy = legacyPublishBodySchema.safeParse(input)
   if (legacy.success) {
     return {
+      version: '1.0',
       event: legacy.data.event || 'publish',
       traceId: legacy.data.traceId,
       publishedAt: legacy.data.publishedAt,
@@ -256,10 +260,11 @@ export async function handleRevalidateWebhook(request: NextRequest) {
     process.env.DEMO_PUBLISH_WEBHOOK_SECRET?.trim()
 
   if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: 'WEBHOOK_SECRET tanimli degil' },
-      { status: 500 }
-    )
+    return webhookError({
+      status: 500,
+      code: 'WEBHOOK_SECRET_MISSING',
+      error: 'WEBHOOK_SECRET tanimli degil',
+    })
   }
 
   const signature = request.headers.get('x-signature') || ''
@@ -274,50 +279,56 @@ export async function handleRevalidateWebhook(request: NextRequest) {
     secret,
   })
   if (!verification.ok) {
-    return NextResponse.json(
-      { ok: false, error: verification.error || 'Imza dogrulanamadi' },
-      { status: 401 }
-    )
+    return webhookError({
+      status: 401,
+      code: 'SIGNATURE_INVALID',
+      error: verification.error || 'Imza dogrulanamadi',
+    })
   }
 
   let parsedBody: unknown
   try {
     parsedBody = JSON.parse(rawBody)
   } catch {
-    return NextResponse.json(
-      { ok: false, error: 'JSON parse hatasi' },
-      { status: 400 }
-    )
+    return webhookError({
+      status: 400,
+      code: 'INVALID_JSON',
+      error: 'JSON parse hatasi',
+    })
   }
 
   const bodyData = normalizeBody(parsedBody)
   if (!bodyData) {
-    return NextResponse.json(
-      { ok: false, error: 'BodyData kontrata uymuyor' },
-      { status: 400 }
-    )
+    return webhookError({
+      status: 400,
+      code: 'PAYLOAD_INVALID',
+      error: 'BodyData kontrata uymuyor',
+    })
   }
 
   const siteSlug = normalizeSiteSlug(bodyData.siteSlug)
   if (!siteSlug) {
-    return NextResponse.json(
-      { ok: false, error: 'Site slug gecersiz' },
-      { status: 400 }
-    )
+    return webhookError({
+      status: 400,
+      code: 'SITE_SLUG_INVALID',
+      error: 'Site slug gecersiz',
+    })
   }
 
   if (!headerTraceId) {
-    return NextResponse.json(
-      { ok: false, error: 'x-trace-id zorunlu' },
-      { status: 400 }
-    )
+    return webhookError({
+      status: 400,
+      code: 'TRACE_HEADER_REQUIRED',
+      error: 'x-trace-id zorunlu',
+    })
   }
 
   if (headerTraceId !== bodyData.traceId) {
-    return NextResponse.json(
-      { ok: false, error: 'TraceId uyusmuyor' },
-      { status: 400 }
-    )
+    return webhookError({
+      status: 400,
+      code: 'TRACE_ID_MISMATCH',
+      error: 'TraceId uyusmuyor',
+    })
   }
 
   const replayRegistration = await registerTraceIdWithRedis(
@@ -326,8 +337,11 @@ export async function handleRevalidateWebhook(request: NextRequest) {
   )
 
   if (!replayRegistration.accepted) {
-    return NextResponse.json(
-      { ok: true, skipped: true, traceId: bodyData.traceId },
+    return webhookSuccess(
+      {
+        skipped: true,
+        traceId: bodyData.traceId,
+      },
       { status: 200 }
     )
   }
@@ -355,11 +369,12 @@ export async function handleRevalidateWebhook(request: NextRequest) {
     durationMs,
   })
 
-  return NextResponse.json({
-    ok: true,
+  return webhookSuccess({
     traceId: bodyData.traceId,
     event: bodyData.event,
     siteSlug,
+    source: bodyData.source,
+    payloadVersion: bodyData.version,
     revalidated: warmupPaths,
     warmed,
     warnings,

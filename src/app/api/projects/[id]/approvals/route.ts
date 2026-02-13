@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
 import { listAgentApprovalRuns } from '@/features/projects/lib/agent-approval.store'
+import { apiError, apiSuccess } from '@/shared/lib/api-contract'
 
 function parseLimit(url: string): number {
   const search = new URL(url).searchParams
@@ -20,13 +20,14 @@ export async function GET(
     const limit = parseLimit(request.url)
     const approvals = await listAgentApprovalRuns(id, limit)
 
-    return NextResponse.json({
-      success: true,
-      approvals,
-    })
+    return apiSuccess({ approvals })
   } catch (error) {
     console.error('List approvals error:', error)
     const message = error instanceof Error ? error.message : 'Approval kayitlari alinamadi'
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return apiError({
+      status: 500,
+      code: 'PROJECT_APPROVALS_LIST_FAILED',
+      error: message,
+    })
   }
 }

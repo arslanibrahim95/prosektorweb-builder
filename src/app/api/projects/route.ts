@@ -1,14 +1,18 @@
-import { NextResponse } from 'next/server'
 import { createProject, listProjects } from '@/features/projects/lib/project-layer'
+import { apiError, apiSuccess } from '@/shared/lib/api-contract'
 
 export async function GET() {
   try {
     const projects = await listProjects()
-    return NextResponse.json({ success: true, projects })
+    return apiSuccess({ projects })
   } catch (error) {
     console.error('Projects list error:', error)
     const message = error instanceof Error ? error.message : 'Projeler yuklenemedi'
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return apiError({
+      status: 500,
+      code: 'PROJECTS_LIST_FAILED',
+      error: message,
+    })
   }
 }
 
@@ -16,10 +20,14 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const project = await createProject(body)
-    return NextResponse.json({ success: true, project }, { status: 201 })
+    return apiSuccess({ project }, { status: 201 })
   } catch (error) {
     console.error('Create project error:', error)
     const message = error instanceof Error ? error.message : 'Proje olusturulamadi'
-    return NextResponse.json({ success: false, error: message }, { status: 400 })
+    return apiError({
+      status: 400,
+      code: 'PROJECT_CREATE_FAILED',
+      error: message,
+    })
   }
 }

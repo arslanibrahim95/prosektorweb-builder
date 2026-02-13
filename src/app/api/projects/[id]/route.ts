@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getProject, updateProjectUiSettings } from '@/features/projects/lib/project-layer'
+import { apiError, apiSuccess } from '@/shared/lib/api-contract'
 
 const updateProjectSchema = z.object({
   uiSettings: z
@@ -59,14 +59,22 @@ export async function GET(
     const project = await getProject(id)
 
     if (!project) {
-      return NextResponse.json({ success: false, error: 'Proje bulunamadi' }, { status: 404 })
+      return apiError({
+        status: 404,
+        code: 'PROJECT_NOT_FOUND',
+        error: 'Proje bulunamadi',
+      })
     }
 
-    return NextResponse.json({ success: true, project })
+    return apiSuccess({ project })
   } catch (error) {
     console.error('Get project error:', error)
     const message = error instanceof Error ? error.message : 'Proje yuklenemedi'
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return apiError({
+      status: 500,
+      code: 'PROJECT_FETCH_FAILED',
+      error: message,
+    })
   }
 }
 
@@ -80,15 +88,16 @@ export async function PATCH(
     const bodyData = updateProjectSchema.parse(json)
 
     if (!bodyData.uiSettings) {
-      return NextResponse.json(
-        { success: false, error: 'Guncellenecek UI ayari bulunamadi' },
-        { status: 400 }
-      )
+      return apiError({
+        status: 400,
+        code: 'PROJECT_UI_SETTINGS_MISSING',
+        error: 'Guncellenecek UI ayari bulunamadi',
+      })
     }
 
     const project = await updateProjectUiSettings(id, bodyData.uiSettings)
 
-    return NextResponse.json({ success: true, project })
+    return apiSuccess({ project })
   } catch (error) {
     console.error('Patch project error:', error)
     const message =
@@ -98,6 +107,10 @@ export async function PATCH(
           ? error.message
           : 'Proje guncellenemedi'
 
-    return NextResponse.json({ success: false, error: message }, { status: 400 })
+    return apiError({
+      status: 400,
+      code: error instanceof z.ZodError ? 'INVALID_REQUEST' : 'PROJECT_UPDATE_FAILED',
+      error: message,
+    })
   }
 }

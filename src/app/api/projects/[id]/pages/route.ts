@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
 import { listProjectPages } from '@/features/projects/lib/project-layer'
+import { apiError, apiSuccess } from '@/shared/lib/api-contract'
 
 export async function GET(
   _request: Request,
@@ -8,10 +8,14 @@ export async function GET(
   try {
     const { id } = await params
     const pages = await listProjectPages(id)
-    return NextResponse.json({ success: true, pages })
+    return apiSuccess({ pages })
   } catch (error) {
     console.error('List project pages error:', error)
     const message = error instanceof Error ? error.message : 'Sayfalar yuklenemedi'
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return apiError({
+      status: 500,
+      code: 'PROJECT_PAGES_LIST_FAILED',
+      error: message,
+    })
   }
 }

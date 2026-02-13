@@ -1,10 +1,12 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { CONTRACT_VERSION } from '@prosektor/contracts';
 
 const SIGNATURE_PREFIX = 'sha256=';
 
 export const PUBLISH_SIGNATURE_MAX_SKEW_SECONDS = 300;
 
 export interface PublishWebhookBody {
+  version: string;
   event: 'publish' | 'unpublish' | 'page_update' | 'site_update';
   site: {
     id: string;
@@ -211,6 +213,7 @@ export async function dispatchDemoPublishWebhook(input: {
   }
 
   const bodyData: PublishWebhookBody = {
+    version: CONTRACT_VERSION,
     event: input.event || 'publish',
     site: {
       id:

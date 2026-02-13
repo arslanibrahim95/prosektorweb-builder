@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import {
@@ -6,6 +5,7 @@ import {
   AgentApprovalRejectedError,
 } from '@/features/projects/lib/agent-approval'
 import { publishProject } from '@/features/projects/lib/project-layer'
+import { apiError, apiSuccess } from '@/shared/lib/api-contract'
 
 const publishRequestSchema = z.object({
   qaScore: z.number().min(0).max(100).optional(),
@@ -26,6 +26,14 @@ function toStatusCode(error: unknown): number {
   if (error instanceof AgentApprovalAccessError) return error.statusCode
   if (error instanceof AgentApprovalRejectedError) return error.statusCode
   return 400
+}
+
+function toErrorCode(error: unknown): string {
+  if (error instanceof AgentApprovalAccessError) return 'FORBIDDEN_FORCE_OVERRIDE'
+  if (error instanceof AgentApprovalRejectedError) {
+    return error.statusCode === 504 ? 'AGENT_APPROVAL_TIMEOUT' : 'AGENT_APPROVAL_REJECTED'
+  }
+  return 'PROJECT_PUBLISH_FAILED'
 }
 
 async function parsePublishRequestBody(request: Request): Promise<z.infer<typeof publishRequestSchema>> {
@@ -62,8 +70,7 @@ export async function POST(
       },
     })
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       project: result.project,
       pagesPublished: result.pagesPublished,
       webhook: result.webhook,
@@ -75,16 +82,20 @@ export async function POST(
     const message = error instanceof Error ? error.message : 'Yayinlama basarisiz'
 
     if (error instanceof AgentApprovalRejectedError) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: message,
+      return apiError({
+        status: toStatusCode(error),
+        code: toErrorCode(error),
+        error: message,
+        extra: {
           approval: error.approval,
         },
-        { status: toStatusCode(error) }
-      )
+      })
     }
 
-    return NextResponse.json({ success: false, error: message }, { status: toStatusCode(error) })
+    return apiError({
+      status: toStatusCode(error),
+      code: toErrorCode(error),
+      error: message,
+    })
   }
 }

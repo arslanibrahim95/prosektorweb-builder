@@ -94,6 +94,8 @@ interface ProjectPage {
 
 interface PublishResponse {
   success: boolean
+  version?: string
+  code?: string
   error?: string
   project?: ProjectDetail
   pagesPublished?: number

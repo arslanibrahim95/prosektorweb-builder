@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+export const CONTRACT_VERSION = '1.0' as const
+export const contractVersionSchema = z.literal(CONTRACT_VERSION)
+
 export const uuidSchema = z.string().uuid()
 export const isoDateTimeSchema = z.string().datetime({ offset: true }).or(z.string().datetime())
 
@@ -19,6 +22,18 @@ export const apiErrorResponseSchema = z.object({
   code: z.string(),
   message: z.string(),
   details: z.record(z.array(z.string())).optional(),
+})
+
+export const apiSuccessEnvelopeSchema = z.object({
+  success: z.literal(true),
+  version: contractVersionSchema,
+})
+
+export const apiErrorEnvelopeSchema = z.object({
+  success: z.literal(false),
+  version: contractVersionSchema,
+  error: z.string(),
+  code: z.string(),
 })
 
 const seoDefaultsSchema = z
@@ -237,6 +252,7 @@ export const createDomainRequestSchema = z.object({
 })
 
 export const publishWebhookBodySchema = z.object({
+  version: contractVersionSchema.optional().default(CONTRACT_VERSION),
   event: z.enum(['publish', 'unpublish', 'page_update', 'site_update']),
   traceId: z.string().min(8),
   publishedAt: isoDateTimeSchema,
@@ -246,7 +262,7 @@ export const publishWebhookBodySchema = z.object({
     status: siteStatusSchema,
   }),
   pages: z.array(z.string()).default([]),
-  source: z.literal('panel'),
+  source: z.string().min(1),
 })
 
 export const siteTokenResponseSchema = z.object({
@@ -296,7 +312,10 @@ export const publicJobApplySchema = z.object({
   honeypot: z.string().optional().default(''),
 })
 
+export type ContractVersion = z.infer<typeof contractVersionSchema>
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>
+export type ApiSuccessEnvelope = z.infer<typeof apiSuccessEnvelopeSchema>
+export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>
 export type Site = z.infer<typeof siteSchema>
 export type SiteSettings = z.infer<typeof siteSettingsSchema>
 export type Page = z.infer<typeof pageSchema>
