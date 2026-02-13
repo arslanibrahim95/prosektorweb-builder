@@ -13,6 +13,7 @@ Amaç: dış panelde düzenlenen OSGB içeriklerini canlıda render etmek ve pub
   - `POST /api/projects/:id/generate`
   - `GET /api/projects/:id/pages`
   - `POST /api/projects/:id/publish`
+  - `GET /api/projects/:id/approvals`
   - UI: `src/app/projects/*`
 - Publish webhook endpoint'leri:
   - `POST /api/internal/publish`
@@ -62,6 +63,17 @@ DEMO_WARMUP_RETRY_BACKOFF_MS="200"
 DEMO_REPLAY_REDIS_REST_URL="https://<redis-rest-endpoint>"
 DEMO_REPLAY_REDIS_REST_TOKEN="<redis-rest-token>"
 DEMO_REPLAY_REDIS_KEY_PREFIX="demo:publish:replay"
+```
+
+AI approval (generate + publish gate) ayarları:
+
+```env
+AGENT_APPROVAL_MODE="auto"         # auto | mock | openai
+AGENT_APPROVAL_OPENAI_MODEL="gpt-4.1-mini"
+AGENT_APPROVAL_REQUIRED_VOTES="3"
+AGENT_APPROVAL_MIN_SCORE="80"
+AGENT_APPROVAL_TIMEOUT_MS="20000"
+OPENAI_API_KEY="sk-..."
 ```
 
 ## Panelden UI Yonetimi

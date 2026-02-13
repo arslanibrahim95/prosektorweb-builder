@@ -119,6 +119,7 @@ model WebProject {
   tasks             ProjectTask[]
   siteSettings      SiteSettings?
   blogPosts         BlogPost[]
+  approvalRuns      AgentApprovalRun[]
   
   // Finances
   price       Float?
@@ -330,4 +331,65 @@ model BlogPost {
 
   @@unique([projectId, slug])
   @@index([projectId, status])
+}
+
+// ==========================================
+// AGENT APPROVAL MODELS
+// ==========================================
+
+enum AgentApprovalStep {
+  GENERATE
+  PUBLISH
+}
+
+enum AgentApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  OVERRIDDEN
+}
+
+enum AgentVoteDecision {
+  APPROVE
+  REJECT
+}
+
+model AgentApprovalRun {
+  id                 String              @id @default(cuid())
+  projectId          String
+  project            WebProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  step               AgentApprovalStep
+  contentFingerprint String
+  status             AgentApprovalStatus @default(PENDING)
+  requiredVotes      Int                 @default(3)
+  receivedVotes      Int                 @default(0)
+  approvedVotes      Int                 @default(0)
+  threshold          Int                 @default(80)
+  timeoutMs          Int                 @default(20000)
+  reason             String?             @db.Text
+  forced             Boolean             @default(false)
+  forcedByUserId     String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  votes              AgentApprovalVote[]
+
+  @@index([projectId, step, createdAt])
+  @@unique([projectId, step, contentFingerprint])
+}
+
+model AgentApprovalVote {
+  id          String           @id @default(cuid())
+  runId       String
+  run         AgentApprovalRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  reviewerKey String
+  decision    AgentVoteDecision
+  score       Int
+  rationale   String           @db.Text
+  latencyMs   Int?
+  raw         Json?
+  timedOut    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  @@index([runId, reviewerKey])
+  @@unique([runId, reviewerKey])
 }

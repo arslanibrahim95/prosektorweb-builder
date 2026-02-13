@@ -103,6 +103,13 @@ interface PublishResponse {
     escalationLevel: 'none' | 'low' | 'medium' | 'high'
     forced: boolean
   }
+  approval?: {
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'OVERRIDDEN'
+    approvedVotes: number
+    receivedVotes: number
+    threshold: number
+    reason?: string | null
+  }
   webhook?: {
     ok: boolean
     skipped?: boolean
@@ -509,7 +516,11 @@ export default function ProjectDetailPage() {
         ? 'Webhook tamamlandi'
         : result.webhook?.warning || 'Webhook atlandi'
 
-      setMessage(`Yayinlama tamamlandi (${result.pagesPublished ?? 0} sayfa). ${qaNote}. ${webhookNote}.`)
+      const approvalNote = result.approval
+        ? `AI approval ${result.approval.status} (${result.approval.approvedVotes}/${result.approval.receivedVotes}, esik=${result.approval.threshold})`
+        : 'AI approval bilgisi yok'
+
+      setMessage(`Yayinlama tamamlandi (${result.pagesPublished ?? 0} sayfa). ${qaNote}. ${approvalNote}. ${webhookNote}.`)
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : 'Yayinlama basarisiz')
     } finally {

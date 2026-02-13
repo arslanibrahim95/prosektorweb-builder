@@ -25,6 +25,7 @@ interface GenerationStep {
 
 const initialSteps: GenerationStep[] = [
   { id: 'context', label: 'Sirket verileri okunuyor', status: 'pending' },
+  { id: 'approval', label: 'AI agent onayi aliniyor', status: 'pending' },
   { id: 'pages', label: 'Temel sayfalar olusturuluyor', status: 'pending' },
   { id: 'blocks', label: 'Blok icerikleri uretiliyor', status: 'pending' },
   { id: 'seo', label: 'SEO alanlari dolduruluyor', status: 'pending' },

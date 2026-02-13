@@ -25,6 +25,11 @@ import {
   type EscalationLevel,
   type PublishQualityGateResult,
 } from '@/features/projects/lib/quality-gate'
+import { runAgentApproval } from '@/features/projects/lib/agent-approval'
+import type {
+  AgentApprovalActor,
+  AgentApprovalResult,
+} from '@/features/projects/lib/agent-approval.types'
 import {
   DEFAULT_OSGB_TEMPLATE,
   OSGB_INDUSTRY,
@@ -228,11 +233,22 @@ export interface ProjectEditorPage {
   updatedAt: string
 }
 
+export interface GenerateProjectPagesResult {
+  pages: ProjectEditorPage[]
+  approval: AgentApprovalResult
+}
+
+export interface GenerateProjectPagesOptions {
+  actor?: AgentApprovalActor
+  force?: boolean
+}
+
 export interface PublishProjectResult {
   project: ProjectDetail
   pagesPublished: number
   webhook: DemoPublishDispatchResult
   qualityGate: PublishQualityGateResult
+  approval: AgentApprovalResult
 }
 
 export interface PublishProjectOptions {
@@ -241,6 +257,7 @@ export interface PublishProjectOptions {
   force?: boolean
   minQaScore?: number
   requireQaScore?: boolean
+  actor?: AgentApprovalActor
 }
 
 function extractSingle<TSchema extends z.ZodTypeAny>(
@@ -1500,8 +1517,9 @@ export async function listProjectPages(projectId: string): Promise<ProjectEditor
 
 export async function generateProjectPages(
   projectId: string,
-  input: unknown
-): Promise<ProjectEditorPage[]> {
+  input: unknown,
+  options: GenerateProjectPagesOptions = {}
+): Promise<GenerateProjectPagesResult> {
   const bodyData = generationSchema.parse(input)
   const site = await getPanelSiteById(projectId).catch(() => null)
 
@@ -1512,6 +1530,33 @@ export async function generateProjectPages(
   const templates = buildDefaultPages(bodyData)
   const existingPages = await listPanelPages(projectId)
   const pageBySlug = new Map(existingPages.items.map((page) => [normalizePageSlug(page.slug), page]))
+
+  const approval = await runAgentApproval({
+    projectId,
+    step: 'GENERATE',
+    force: options.force,
+    actor: options.actor,
+    payload: {
+      projectId,
+      siteName: site.name,
+      input: bodyData,
+      existingPages: existingPages.items
+        .filter((page) => !page.deleted_at)
+        .map((page) => ({
+          slug: normalizePageSlug(page.slug),
+          status: page.status,
+        })),
+      templates: templates.map((template) => ({
+        title: template.title,
+        slug: normalizePageSlug(template.slug),
+        seoTitle: template.seoTitle,
+        blockCount: template.blocks.length,
+        blockTypes: template.blocks
+          .map((block) => (typeof block.blockType === 'string' ? block.blockType : 'unknown'))
+          .slice(0, 20),
+      })),
+    },
+  })
 
   for (const template of templates) {
     const slug = normalizePageSlug(template.slug)
@@ -1553,7 +1598,10 @@ export async function generateProjectPages(
     status: 'draft',
   }).catch(() => undefined)
 
-  return listProjectPages(projectId)
+  return {
+    pages: await listProjectPages(projectId),
+    approval,
+  }
 }
 
 export async function publishProject(
@@ -1592,6 +1640,24 @@ export async function publishProject(
       `${qualityGate.reason || 'Kalite kapisi gecilemedi'} (qaScore=${qualityGate.qaScore}, esik=${qualityGate.threshold})`
     )
   }
+
+  const approval = await runAgentApproval({
+    projectId,
+    step: 'PUBLISH',
+    force: options.force,
+    actor: options.actor,
+    payload: {
+      projectId,
+      siteName: site.name,
+      qualityGate,
+      pages: pagesForQuality.map((page) => ({
+        slug: normalizePageSlug(page.slug),
+        status: page.status,
+        contentLength: (page.content || '').trim().length,
+        contentSample: (page.content || '').slice(0, 320),
+      })),
+    },
+  })
 
   let pagesPublished = 0
   const warmupPages: string[] = []
@@ -1637,6 +1703,7 @@ export async function publishProject(
     pagesPublished,
     webhook,
     qualityGate,
+    approval,
   }
 }
 
