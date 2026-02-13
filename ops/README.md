@@ -51,3 +51,9 @@ Auth notes:
 Quality gates:
 - Frontend output must satisfy modern-corporate, light-first guardrails.
 - Content output is normalized to strict JSON and validated.
+
+## Repo Hygiene Notes
+
+- `ops/artifacts/*` ve `ops/reports/*` ciktilari uretilmis dosyalardir, git tarafinda takip edilmez.
+- Yalnizca `.gitkeep` dosyalari repoda tutulur.
+- Temizlik icin: `npm run clean:files`.

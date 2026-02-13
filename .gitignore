@@ -8,6 +8,7 @@ node_modules/
 out/
 build/
 dist/
+coverage/
 
 # Environment
 .env
@@ -35,3 +36,9 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 next-env.d.ts
+
+# Agent pipeline generated outputs
+ops/artifacts/*
+!ops/artifacts/.gitkeep
+ops/reports/*
+!ops/reports/.gitkeep

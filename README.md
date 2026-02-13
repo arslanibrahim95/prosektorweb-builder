@@ -157,3 +157,27 @@ npm run test
 ```
 
 Not: Bu reset sonrası test kapsamı yalnızca aktif çekirdeğe odaklıdır.
+
+## Repo Hijyen ve Git Guard
+
+Dosya ve git temizligini sertlestirmek icin:
+
+```bash
+npm run clean:files:dry   # neleri silecegini gosterir
+npm run clean:files       # build/artifact dosyalarini temizler
+npm run hygiene:repo      # conflict marker, legacy ref ve gecici dosya kontrolu
+npm run hygiene:git       # push oncesi tam kalite kapisi (repo + test + build)
+```
+
+Git hooklari etkinlestirmek icin bir kez calistir:
+
+```bash
+npm run hooks:install
+```
+
+Acil durum bypass:
+
+```bash
+SKIP_GIT_GUARDS=1 git commit -m "..."
+SKIP_GIT_GUARDS=1 git push
+```

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT_DIR"
+
+if [[ "${SKIP_GIT_GUARDS:-0}" == "1" ]]; then
+  exit 0
+fi
+
+bash ./scripts/git_preflight.sh
